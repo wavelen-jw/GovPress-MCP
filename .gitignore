@@ -1,0 +1,16 @@
+# env·비밀
+.env
+.env.*
+*.pem
+*.key
+# 데이터
+data/
+vendor/gov-md-converter/.venv/
+# 빌드·캐시
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
+# 에디터
+.vscode/
+.idea/
