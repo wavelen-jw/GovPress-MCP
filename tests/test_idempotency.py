@@ -39,8 +39,8 @@ def test_idempotency_skip_same_sha() -> None:
 
         with patch.object(bulk_ingest, "_convert_raw_to_md", lambda raw_path: "# converted"), patch.object(
             bulk_ingest,
-            "_build_extracted_by",
-            lambda: "0.1.9+85cb2e8f57ce",
+            "_converter_metadata",
+            lambda: ("0.1.9", "85cb2e8f57ce"),
         ):
             first = asyncio.run(
                 bulk_ingest._process_one(
@@ -63,5 +63,5 @@ def test_idempotency_skip_same_sha() -> None:
                 )
             )
 
-        assert first == "success"
-        assert second == "skip_sha"
+        assert first.status == "success"
+        assert second.status == "skip_sha"

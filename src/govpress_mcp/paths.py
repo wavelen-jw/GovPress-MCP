@@ -22,9 +22,15 @@ def approve_datetime(approve_date: str) -> datetime:
     return datetime.strptime(approve_date, "%m/%d/%Y %H:%M:%S")
 
 
-def raw_path(data_root: Path, news_item_id: str, approve_date: str) -> Path:
+def raw_path(
+    data_root: Path,
+    news_item_id: str,
+    approve_date: str,
+    *,
+    source_format: str = "hwpx",
+) -> Path:
     approved_at = approve_datetime(approve_date)
-    return data_root / "raw" / approved_at.strftime("%Y") / approved_at.strftime("%m") / f"{news_item_id}.hwpx"
+    return data_root / "raw" / approved_at.strftime("%Y") / approved_at.strftime("%m") / f"{news_item_id}.{source_format}"
 
 
 def md_path(data_root: Path, news_item_id: str, approve_date: str) -> Path:
@@ -38,6 +44,12 @@ def atomic_write_bytes(target: Path, content: bytes) -> None:
 
 def atomic_write_text(target: Path, content: str) -> None:
     _atomic_write(target, content, mode="w", encoding="utf-8")
+
+
+def append_text_line(target: Path, line: str) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with open(target, "a", encoding="utf-8", newline="") as handle:
+        handle.write(line)
 
 
 def _atomic_write(target: Path, content: bytes | str, *, mode: str, encoding: str | None = None) -> None:

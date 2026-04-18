@@ -12,7 +12,9 @@ def build(
     sha256: str,
     revision: int,
     raw_path: str | Path,
-    extracted_by: str,
+    govpress_version: str,
+    govpress_commit: str,
+    source_format: str = "hwpx",
 ) -> dict[str, object]:
     approved_at = approve_datetime(item.approve_date).isoformat()
     normalized_raw_path = Path(raw_path).as_posix()
@@ -27,7 +29,9 @@ def build(
         "original_url": item.original_url,
         "sha256": sha256,
         "revision": revision,
-        "extracted_by": extracted_by,
+        "govpress_version": govpress_version,
+        "govpress_commit": govpress_commit,
+        "source_format": source_format,
         "raw_path": normalized_raw_path,
     }
 

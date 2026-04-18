@@ -5,6 +5,8 @@
 *.key
 # 데이터
 data/
+logs/
+docs/backfill-progress-*.md
 vendor/gov-md-converter/.venv/
 # 빌드·캐시
 __pycache__/

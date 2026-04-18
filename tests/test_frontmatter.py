@@ -17,7 +17,9 @@ def test_frontmatter_round_trip() -> None:
         sha256="abc123",
         revision=1,
         raw_path="data/raw/2026/04/123.hwpx",
-        extracted_by="0.1.9+85cb2e8f57ce",
+        govpress_version="0.1.9",
+        govpress_commit="85cb2e8f57ce",
+        source_format="hwpx",
     )
 
     document = frontmatter.prepend("# 본문", fm)
@@ -32,9 +34,14 @@ def test_frontmatter_round_trip() -> None:
         "original_url",
         "sha256",
         "revision",
-        "extracted_by",
+        "govpress_version",
+        "govpress_commit",
+        "source_format",
         "raw_path",
     }
     assert parsed["approve_date"] == "2026-04-10T06:00:00"
     assert parsed["revision"] == "1"
+    assert parsed["govpress_version"] == "0.1.9"
+    assert parsed["govpress_commit"] == "85cb2e8f57ce"
+    assert parsed["source_format"] == "hwpx"
     assert body == "# 본문\n"

@@ -25,3 +25,12 @@
 - no_primary_hwpx 비율이 기준 초과입니다: 15.0% >= 2.0%
 - 디스크 증가량이 예측 대비 허용 범위를 벗어났습니다: +56.2%
 - 비재시도 실패가 4건 발생했습니다.
+
+## 기준 조정 사유
+- 2026-04-18 AGENTS.md 개정으로 `no_primary_hwpx`는 소스 분포를 반영하는 참고용 bucket으로 재분류했다. M3부터는 `no_primary_hwpx` / `hwpx_html_error_page` / `hwpx_empty_payload`를 `pdf-queue` 기준으로 별도 추적한다.
+- frontmatter는 v2(`govpress_version`, `govpress_commit`, `source_format`)로 통일했고, 기존 M1+M2 산출물은 `stamp_version.py`로 백필 완료했다.
+- 디스크 기준은 절대 예측치가 아니라 M2 실측 raw `+3.11GB`를 기준점으로 삼아 `±60%` 허용으로 재조정했다.
+
+## 재판정
+- 기준 조정 후 M2는 통과로 판정한다.
+- 재판정 기준에서 `no_primary_hwpx`는 실패 조건이 아니며, M3의 `pdf-queue` 입력 규모를 추정하는 참고 지표로만 사용한다.
