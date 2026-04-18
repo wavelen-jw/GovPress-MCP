@@ -14,3 +14,4 @@ __pycache__/
 # 에디터
 .vscode/
 .idea/
+.codex
