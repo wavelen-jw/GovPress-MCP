@@ -3,6 +3,8 @@
 > **정책의 git log.** 중앙부처 보도자료 5년치를 Claude에게 맥락으로 먹이는 오픈소스 MCP 서버.
 > 같은 정책의 연차별 후속 발표를 시계열로 묶고, 부처간 diff를 기계적으로 적발한다.
 
+[`Phase 1 / M3 Backfill Report`](docs/phase1-report.md) · [`HWP → HWPX 변환 결과`](docs/hwp-hwpx-conversion-report-2026-04-20.md) · [`LICENSE-data`](LICENSE-data)
+
 > ⚠️ **검증 대기 영역**: 아래 `compare_versions`(정정 diff) 기능은 중앙부처 보도자료의 정정·URL 덮어쓰기 빈도가 매우 낮다는 준우의 도메인 지식에 따라 존속 여부를 재검토 중입니다. [`silent-overwrite-검증실험.md`](silent-overwrite-검증실험.md)의 결정 트리가 완료되면 이 섹션이 확정됩니다. 현재 공식 킬러는 `trace_policy`와 `cross_check_ministries` 두 개입니다.
 
 <!-- hero GIFs: 해당 파일을 docs/demo/*.gif 로 배포 -->
@@ -20,35 +22,6 @@
   <img src="docs/demo/03-validate-stats.gif" width="720" alt="validate_statistics demo — 보도자료 초안 검증"/>
   <br/><em>내일 배포할 초안의 숫자가 과거 발표와 맞는지 사전 점검</em>
 </p>
-
----
-
-1차 검사 결과
-• 전체 기간 2021-04-18 ~ 2026-04-18, 총 174,351건 기준 정리입니다.
-
-  | 유형 | 설명 | 건수 | 비율 |
-  |---|---|---:|---:|
-  | success | 정상 HWPX 다운로드 후 Markdown 생성 완료 | 91,086 | 52.24% |
-  | skip_sha | 이미 같은 원본 SHA256이 있어 재처리 생략 | 10,149 | 5.82% |
-  | pdf_queue_no_primary_hwpx | primary_hwpx가 없어 PDF 대기열로 큐잉 | 42,452 | 24.35% |
-  | pdf_queue_hwpx_html_error_page | HWPX가 HTML 오류 페이지여서 PDF 대기열로 큐잉 | 171 | 0.10% |
-  | pdf_queue_hwpx_empty_payload | HWPX가 0바이트여서 PDF 대기열로 큐잉 | 7 | 0.00% |
-  | no_attachments | 첨부 자체가 없어 스킵 | 26,638 | 15.28% |
-  | odt_only | 첨부가 ODT만 있어 스킵 | 2,392 | 1.37% |
-  | hwp_legacy | 실제로는 구형 HWP 바이너리 | 1,191 | 0.68% |
-  | conversion_failed | 정상 HWPX를 받았지만 변환 실패 | 252 | 0.14% |
-  | hwpx_empty_payload | 0바이트 HWPX였고 PDF fallback도 없음 | 9 | 0.01% |
-  | hwpx_html_error_page | HTML 오류 페이지였고 PDF fallback도 없음 | 4 | 0.00% |
-
-  묶어서 보면:
-
-  - 정상 완료: 91,086건 (52.24%)
-  - 중복 생략: 10,149건 (5.82%)
-  - PDF 대기열: 42,630건 (24.45%)
-  - 첨부 없음/ODT만: 29,030건 (16.65%)
-  - 레거시 HWP: 1,191건 (0.68%)
-  - HWPX 변환 실패: 252건 (0.14%)
-
 
 ---
 
@@ -118,12 +91,19 @@
 
 ## 데이터
 
-- **범위**: 2021-04 ~ 2026-04 (5년치, 약 52,000건)
-- **출처**: 중앙부처 보도자료 (기재부·산업부·과기정통부·환경부·교육부·국토부 등)
-- **변환**: HWPX → Markdown (Govpress 변환 엔진 v0.3.x)
+- **범위**: `2021-04-18 ~ 2026-04-18`
+- **문서ID 기준 최종 분류**: HWPX `95,084`, HWP `33,853`, PDF `915`, `no_attachments` `3,076`, `odt_only` `2`, unresolved failed `367`
+- **HWP 레거시 보정 결과**: HWP `33,853`건 중 HWPX 변환 성공 `33,801`, 변환 불가 예외 `52` ([보고서](docs/hwp-hwpx-conversion-report-2026-04-20.md))
+- **최종 적재 결과**: Markdown `95,084`건, HWP 큐 `33,853`건, 최종 PDF 원본 `915`건
+- **원본 저장량**: raw `199.84 GiB`, markdown `0.72 GiB`
+- **변환 우선순위**: `hwpx > hwp > pdf`
+- **변환**: `govpress-converter` 기반 Markdown 변환
+- **M3 결과 보고서**: [`docs/phase1-report.md`](docs/phase1-report.md)
+- **M3 최종 통계**: [`docs/m3-final-stats.md`](docs/m3-final-stats.md)
+- **데이터 고지**: [`LICENSE-data`](LICENSE-data)
 - **OpenAPI payload 평가**: [`vendor/gov-md-converter/docs/policy-briefing-openapi-payload-assessment-2026-04-19.md`](vendor/gov-md-converter/docs/policy-briefing-openapi-payload-assessment-2026-04-19.md)  
   실제 `pressReleaseList` XML payload를 표본 호출해 `DataContents`, `ContentsType`, 첨부 필드 구조를 점검한 메모. 결론은 API 본문만으로는 원문 품질 Markdown 소스로 부족하고, 첨부 HWP/HWPX/PDF 변환이 필요하다는 것이다.
-- **저장소**: [`policy-briefing-kr`](https://github.com/USER/policy-briefing-kr) (공개 Git 리포)
+- **M3 / 단일 패스 요약**: 5년 백필 완료 후 단일 패스 재수집까지 완료, `forbidden_host_hits=0`, `skip_sha` 문서ID `100,839`, 최종 unresolved failed 문서ID `367`
 - **인덱스**: SQLite FTS5 + Qdrant (BGE-M3 임베딩, 청크 단위)
 
 ## 빠른 시작
