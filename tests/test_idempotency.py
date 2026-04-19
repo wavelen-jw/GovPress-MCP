@@ -15,10 +15,14 @@ class FakeClient:
     def __init__(self, content: bytes) -> None:
         self._content = content
 
-    def download_item_hwpx(self, item: PolicyBriefingItem) -> DownloadedPolicyBriefingFile:
+    def download_attachment(
+        self,
+        item: PolicyBriefingItem,
+        attachment: PolicyBriefingAttachment,
+    ) -> DownloadedPolicyBriefingFile:
         return DownloadedPolicyBriefingFile(
             item=item,
-            attachment=item.primary_hwpx,
+            attachment=attachment,
             content=self._content,
         )
 

@@ -4,10 +4,26 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from govpress_mcp import bulk_ingest, checksums, paths
-from govpress_mcp.vendored.policy_briefing import PolicyBriefingAttachment, PolicyBriefingItem
+from govpress_mcp.vendored.policy_briefing import (
+    DownloadedPolicyBriefingFile,
+    PolicyBriefingAttachment,
+    PolicyBriefingItem,
+)
 
 
-def test_no_primary_hwpx_with_pdf_is_queued() -> None:
+class FakePdfClient:
+    def __init__(self, content: bytes) -> None:
+        self._content = content
+
+    def download_attachment(
+        self,
+        item: PolicyBriefingItem,
+        attachment: PolicyBriefingAttachment,
+    ) -> DownloadedPolicyBriefingFile:
+        return DownloadedPolicyBriefingFile(item=item, attachment=attachment, content=self._content)
+
+
+def test_no_primary_hwpx_with_pdf_is_downloaded_and_queued() -> None:
     with TemporaryDirectory() as tmp_dir:
         data_root = Path(tmp_dir) / "data"
         paths.ensure_dirs(data_root)
@@ -25,7 +41,7 @@ def test_no_primary_hwpx_with_pdf_is_queued() -> None:
 
         outcome = asyncio.run(
             bulk_ingest._process_one(
-                client=None,  # type: ignore[arg-type]
+                client=FakePdfClient(b"%PDF-1.7 sample"),
                 item=item,
                 data_root=data_root,
                 checksum_store=store,
@@ -34,7 +50,9 @@ def test_no_primary_hwpx_with_pdf_is_queued() -> None:
             )
         )
 
-        assert outcome.status == "pdf_queue_no_primary_hwpx"
+        assert outcome.status == "pdf_collected"
+        raw_path = data_root / "raw" / "2026" / "04" / "news-queue-1.pdf"
+        assert raw_path.read_bytes() == b"%PDF-1.7 sample"
         queue_path = data_root / "fetch-log" / "pdf-queue.jsonl"
         rows = [json.loads(line) for line in queue_path.read_text(encoding="utf-8").splitlines()]
         assert rows == [

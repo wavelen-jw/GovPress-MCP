@@ -1,6 +1,8 @@
 # Phase 1 Backfill Report
 
-M3 HWPX backfill is complete for the target range `2021-04-18 ~ 2026-04-18`.
+Document-ID-based final retained-corpus statistics are maintained separately in [`m3-final-stats.md`](m3-final-stats.md).
+
+Phase 1 backfill is complete for the target range `2021-04-18 ~ 2026-04-18`, including the follow-up single-pass attachment reconciliation with priority `hwpx > hwp > pdf`.
 
 ## Summary
 
@@ -12,12 +14,34 @@ M3 HWPX backfill is complete for the target range `2021-04-18 ~ 2026-04-18`.
 - Frontmatter v2 check: `extracted_by:` `0`건
 - Forbidden host hits: `0`
 
+## Single-Pass Reconciliation
+
+- Execution window: `2026-04-19 14:54 KST` to `2026-04-19 20:44 KST`
+- Retry window: `2026-04-19 20:56 KST` to `2026-04-19 20:58 KST`
+- Priority: `hwpx > hwp > pdf`
+- Unified run item rows: `144,038`
+- Retry run item rows: `1,138`
+- Final reconciliation item rows: `145,176`
+- Final source-format totals:
+  - `hwpx`: `95,084`
+  - `hwp`: `33,853`
+  - `pdf`: `915`
+- Final queues:
+  - `hwp-queue.jsonl`: `33,853`
+  - final raw `.pdf`: `915`
+- Retry result: `11/11` failed dates recovered, final `date_failed=0`
+
 ## Output Snapshot
 
-- Raw corpus size: `143.83 GiB`
-- Markdown corpus size: `0.70 GiB`
+- Raw corpus size: `199.84 GiB`
+- Markdown corpus size: `0.72 GiB`
 - Raw layout: `data/raw/{yyyy}/{mm}/{news_item_id}.hwpx`
 - Markdown layout: `data/md/{yyyy}/{mm}/{news_item_id}.md`
+
+Additional raw layouts produced by the reconciliation pass:
+
+- `data/raw/{yyyy}/{mm}/{news_item_id}.hwp`
+- `data/raw/{yyyy}/{mm}/{news_item_id}.pdf`
 
 Yearly Markdown file counts:
 
@@ -54,28 +78,43 @@ Notes:
 - `pdf_queue_*` means the HWPX track was skipped and a PDF fallback candidate was recorded for M4.
 - `hwpx_*` without `pdf_queue_` means the HWPX payload was abnormal and no primary PDF fallback was available.
 
-## PDF Queue Summary
+## PDF Collection Summary
 
-- Queue file: `data/fetch-log/pdf-queue.jsonl`
-- Total queued rows: `42,650`
-
-| Reason | Count |
-|---|---:|
-| `no_primary_hwpx` | 42,472 |
-| `hwpx_html_error_page` | 171 |
-| `hwpx_empty_payload` | 7 |
+- Final raw PDF files: `915`
+- Of these, `892` were collected by the unified single-pass reconciliation and `23` were already present beforehand
+- Collection rule: only when both HWPX and HWP were unavailable
 
 The queue file is the M4 input pool. It is larger than the M3-run-only subset because it includes earlier rehearsal and restart history already appended to the same JSONL.
 
 ## Failure Queue
 
 - Failure file: `data/fetch-log/failed.jsonl`
-- Total rows: `270`
+- Total rows: `633`
 
 | Failure class | Count |
 |---|---:|
-| `conversion_failed` | 264 |
-| `download_failed` | 6 |
+| `conversion_failed` | `512` |
+| `download_failed` | `121` |
+
+## Reconciliation Distribution
+
+Base denominator: `145,176` processed rows in `data/fetch-log/unified-collect.jsonl` plus `data/fetch-log/unified-retry.jsonl`.
+
+| Status | Count |
+|---|---:|
+| `skip_sha` | `103,950` |
+| `hwp_attachment` | `31,720` |
+| `hwp_legacy` | `1,197` |
+| `pdf_collected` | `892` |
+| `no_attachments` | `3,288` |
+| `odt_only` | `2` |
+| `conversion_failed` | `248` |
+| `pdf_queue_hwpx_html_error_page` | `176` |
+| `pdf_queue_hwpx_empty_payload` | `7` |
+| `hwpx_html_error_page` | `4` |
+| `hwpx_empty_payload` | `8` |
+| `other_download_failed` | `115` |
+| `success` | `1,731` |
 
 ## Performance
 
@@ -118,11 +157,53 @@ The HWPX backfill itself is complete. The remaining close-out items for a strict
 | `systemd` daily timer registration | Pending | Timer unit activation and 7-day validation were not completed in this repository state. |
 | `LICENSE-data` file | Done | Added at repo root. |
 
+## Post-M3 Final State
+
+- Existing HWPX corpus was reused in-place via checksum lookup before download.
+- Follow-up reconciliation added:
+  - raw `.hwp`: `33,853` files / `52.60 GiB`
+  - raw `.pdf`: `915` files / `0.66 GiB`
+- Final retry-only additions:
+  - `hwp +304`
+  - `pdf +7`
+
+## Final Totals
+
+This is the final retained corpus after the M3 HWPX backfill, the single-pass attachment reconciliation, and the retry pass.
+
+| Category | Total |
+|---|---:|
+| Raw `hwpx` files | `95,084` |
+| Raw `hwp` files | `33,853` |
+| Raw `pdf` files | `915` |
+| Markdown files | `93,353` |
+| `hwp-queue.jsonl` rows | `33,853` |
+| `pdf-queue.jsonl` rows | `43,748` |
+| `failed.jsonl` rows | `633` |
+
+Final reconciliation distribution (`unified-collect.jsonl` + `unified-retry.jsonl`):
+
+| Status | Count |
+|---|---:|
+| `skip_sha` | `103,950` |
+| `hwp_attachment` | `31,720` |
+| `hwp_legacy` | `1,197` |
+| `pdf_collected` | `892` |
+| `success` | `1,731` |
+| `conversion_failed` | `248` |
+| `no_attachments` | `3,288` |
+| `odt_only` | `2` |
+| `pdf_queue_hwpx_html_error_page` | `176` |
+| `pdf_queue_hwpx_empty_payload` | `7` |
+| `hwpx_html_error_page` | `4` |
+| `hwpx_empty_payload` | `8` |
+| `other_download_failed` | `115` |
+
 ## References
 
 - Data notice: [`../LICENSE-data`](../LICENSE-data)
 - Backfill log path: `logs/backfill.stdout`
 - Item log path: `data/fetch-log/backfill.jsonl`
-- PDF queue path: `data/fetch-log/pdf-queue.jsonl`
+- PDF queue path: `data/fetch-log/pdf-queue.jsonl` (historical queue log; final raw PDF corpus is `915`)
 - Failure queue path: `data/fetch-log/failed.jsonl`
 - Heartbeat path: `data/fetch-log/heartbeat.jsonl`

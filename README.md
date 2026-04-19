@@ -3,6 +3,8 @@
 > **정책의 git log.** 중앙부처 보도자료 5년치를 Claude에게 맥락으로 먹이는 오픈소스 MCP 서버.
 > 같은 정책의 연차별 후속 발표를 시계열로 묶고, 부처간 diff를 기계적으로 적발한다.
 
+[`Phase 1 / M3 Backfill Report`](docs/phase1-report.md) · [`LICENSE-data`](LICENSE-data)
+
 > ⚠️ **검증 대기 영역**: 아래 `compare_versions`(정정 diff) 기능은 중앙부처 보도자료의 정정·URL 덮어쓰기 빈도가 매우 낮다는 준우의 도메인 지식에 따라 존속 여부를 재검토 중입니다. [`silent-overwrite-검증실험.md`](silent-overwrite-검증실험.md)의 결정 트리가 완료되면 이 섹션이 확정됩니다. 현재 공식 킬러는 `trace_policy`와 `cross_check_ministries` 두 개입니다.
 
 <!-- hero GIFs: 해당 파일을 docs/demo/*.gif 로 배포 -->
@@ -90,14 +92,17 @@
 ## 데이터
 
 - **범위**: `2021-04-18 ~ 2026-04-18`
-- **적재 결과**: Markdown `93,353`건 생성, HWPX 성공 `91,086`건, PDF 대기열 `42,650`건
-- **원본 저장량**: raw `143.83 GiB`, markdown `0.70 GiB`
-- **변환**: HWPX 우선 파이프라인, `govpress-converter` 기반 Markdown 변환
+- **문서ID 기준 최종 분류**: HWPX `95,084`, HWP `33,853`, PDF `915`, `no_attachments` `3,076`, `odt_only` `2`, unresolved failed `367`
+- **최종 적재 결과**: Markdown `95,084`건, HWP 큐 `33,853`건, 최종 PDF 원본 `915`건
+- **원본 저장량**: raw `199.84 GiB`, markdown `0.72 GiB`
+- **변환 우선순위**: `hwpx > hwp > pdf`
+- **변환**: `govpress-converter` 기반 Markdown 변환
 - **M3 결과 보고서**: [`docs/phase1-report.md`](docs/phase1-report.md)
+- **M3 최종 통계**: [`docs/m3-final-stats.md`](docs/m3-final-stats.md)
 - **데이터 고지**: [`LICENSE-data`](LICENSE-data)
 - **OpenAPI payload 평가**: [`vendor/gov-md-converter/docs/policy-briefing-openapi-payload-assessment-2026-04-19.md`](vendor/gov-md-converter/docs/policy-briefing-openapi-payload-assessment-2026-04-19.md)  
   실제 `pressReleaseList` XML payload를 표본 호출해 `DataContents`, `ContentsType`, 첨부 필드 구조를 점검한 메모. 결론은 API 본문만으로는 원문 품질 Markdown 소스로 부족하고, 첨부 HWP/HWPX/PDF 변환이 필요하다는 것이다.
-- **M3 진행 요약**: 5년 백필 완료, `forbidden_host_hits=0`, 최종 재개 런 `successful=14,479`, `skip_sha=3,069`, `pdf_queue=1,622`
+- **M3 / 단일 패스 요약**: 5년 백필 완료 후 단일 패스 재수집까지 완료, `forbidden_host_hits=0`, `skip_sha` 문서ID `100,839`, 최종 unresolved failed 문서ID `367`
 - **인덱스**: SQLite FTS5 + Qdrant (BGE-M3 임베딩, 청크 단위)
 
 ## 빠른 시작

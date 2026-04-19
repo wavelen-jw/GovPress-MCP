@@ -25,6 +25,7 @@ import govpress_converter
 from govpress_mcp import checksums, entity_classify, frontmatter, paths, ratelimit
 from govpress_mcp.vendored.policy_briefing import (
     DownloadedPolicyBriefingFile,
+    PolicyBriefingAttachment,
     PolicyBriefingClient,
     PolicyBriefingItem,
 )
@@ -47,6 +48,13 @@ class ItemOutcome:
     sha256: str | None = None
 
 
+@dataclass(frozen=True)
+class AttachmentSelection:
+    source_format: str
+    attachment: PolicyBriefingAttachment
+    queue_reason: str | None = None
+
+
 @dataclass
 class RunStats:
     target_date: str
@@ -57,6 +65,7 @@ class RunStats:
     pdf_queue: int = 0
     no_primary_hwpx: int = 0
     hwp_legacy: int = 0
+    hwp_attachment: int = 0
     conversion_failed: int = 0
     failed: int = 0
     odt_only: int = 0
@@ -84,6 +93,7 @@ class AggregateStats:
     pdf_queue: int = 0
     no_primary_hwpx: int = 0
     hwp_legacy: int = 0
+    hwp_attachment: int = 0
     conversion_failed: int = 0
     failed: int = 0
     odt_only: int = 0
@@ -106,6 +116,7 @@ class AggregateStats:
         self.pdf_queue += other.pdf_queue
         self.no_primary_hwpx += other.no_primary_hwpx
         self.hwp_legacy += other.hwp_legacy
+        self.hwp_attachment += other.hwp_attachment
         self.conversion_failed += other.conversion_failed
         self.failed += other.failed
         self.odt_only += other.odt_only
@@ -142,7 +153,7 @@ class AggregateStats:
 
     @property
     def hwpx_target_count(self) -> int:
-        return max(0, self.total_items - self.hwp_legacy - self.pdf_queue)
+        return max(0, self.total_items - self.hwp_legacy - self.hwp_attachment - self.pdf_queue)
 
     @property
     def hwpx_success_rate(self) -> float:
@@ -174,8 +185,18 @@ def _parse_iso_date(text: str) -> date:
     return datetime.strptime(text, "%Y-%m-%d").date()
 
 
+def _canonical_data_root(requested: Path) -> Path:
+    repo_data_root = Path.cwd() / "data"
+    requested_resolved = requested.expanduser().resolve()
+    repo_resolved = repo_data_root.resolve()
+    if requested_resolved != repo_resolved:
+        LOG.warning("Overriding --data-root %s -> %s", requested_resolved, repo_resolved)
+    return repo_data_root
+
+
 async def run(args: argparse.Namespace) -> int:
     _setup_logging(args.log_level)
+    args.data_root = _canonical_data_root(args.data_root)
     _assert_env(args.data_root)
     _install_forbidden_host_guards()
     ratelimit.reset_retry_stats()
@@ -244,17 +265,19 @@ async def run(args: argparse.Namespace) -> int:
                 "skip_sha": day_stats.skip_sha,
                 "pdf_queue": day_stats.pdf_queue,
                 "hwp_legacy": day_stats.hwp_legacy,
+                "hwp_attachment": day_stats.hwp_attachment,
                 "conversion_failed": day_stats.conversion_failed,
                 "failed": day_stats.failed,
             },
         )
         LOG.info(
-            "date=%s successful=%d skip_sha=%d pdf_queue=%d hwp_legacy=%d conversion_failed=%d failed=%d",
+            "date=%s successful=%d skip_sha=%d pdf_queue=%d hwp_legacy=%d hwp_attachment=%d conversion_failed=%d failed=%d",
             target_date.isoformat(),
             day_stats.successful,
             day_stats.skip_sha,
             day_stats.pdf_queue,
             day_stats.hwp_legacy,
+            day_stats.hwp_attachment,
             day_stats.conversion_failed,
             day_stats.failed,
         )
@@ -282,12 +305,13 @@ async def run(args: argparse.Namespace) -> int:
         )
 
     LOG.info(
-        "done successful=%d skip_sha=%d pdf_queue=%d no_primary_hwpx=%d hwp_legacy=%d conversion_failed=%d forbidden_host_hits=%d",
+        "done successful=%d skip_sha=%d pdf_queue=%d no_primary_hwpx=%d hwp_legacy=%d hwp_attachment=%d conversion_failed=%d forbidden_host_hits=%d",
         aggregate.successful,
         aggregate.skip_sha,
         aggregate.pdf_queue,
         aggregate.no_primary_hwpx,
         aggregate.hwp_legacy,
+        aggregate.hwp_attachment,
         aggregate.conversion_failed,
         _FORBIDDEN_HOST_HITS,
     )
@@ -406,6 +430,14 @@ def _record_outcome(stats: RunStats, outcome: ItemOutcome) -> None:
         stats.skip_sha += 1
     elif outcome.status == "hwp_legacy":
         stats.hwp_legacy += 1
+        stats.durations.append(outcome.duration_seconds)
+    elif outcome.status == "hwp_attachment":
+        stats.hwp_attachment += 1
+        stats.durations.append(outcome.duration_seconds)
+    elif outcome.status == "pdf_collected":
+        stats.no_primary_hwpx += 1
+        stats.pdf_queue += 1
+        stats.durations.append(outcome.duration_seconds)
     elif outcome.status == "conversion_failed":
         stats.conversion_failed += 1
     elif outcome.status == "pdf_queue_no_primary_hwpx":
@@ -447,84 +479,177 @@ async def _process_one(
         if dry_run:
             return ItemOutcome("skip_sha")
 
-        if item.primary_hwpx is None:
-            return _handle_missing_hwpx(item, data_root)
-
+        selection = _select_best_attachment(item)
+        if selection is None:
+            reason = _non_pdf_skip_reason(item)
+            LOG.info("SKIP: %s item=%s", reason, item.news_item_id)
+            return ItemOutcome(reason)
+        existing = checksum_store.get(item.news_item_id)
+        if selection.source_format == "hwpx" and existing and existing.source_format == "hwpx":
+            LOG.info("SKIP: already fetched source_format=hwpx item=%s", item.news_item_id)
+            return ItemOutcome("skip_sha", sha256=existing.sha256)
         started = asyncio.get_running_loop().time()
         try:
-            downloaded: DownloadedPolicyBriefingFile = _download_item_with_retry(client)(item)
+            downloaded = _download_selected_attachment_with_retry(client)(item, selection)
         except Exception as exc:
-            return _handle_download_exception(item, exc, data_root)
+            return _handle_download_exception(item=item, selection=selection, exc=exc, data_root=data_root)
 
-        if not downloaded.is_zip_container:
-            LOG.info("SKIP: legacy HWP binary item=%s", item.news_item_id)
-            return ItemOutcome("hwp_legacy")
-
-        sha256 = hashlib.sha256(downloaded.content).hexdigest()
-        existing = checksum_store.get(item.news_item_id)
-        if existing and existing.sha256 == sha256:
-            LOG.info("SKIP: already fetched, sha256=%s", sha256)
-            return ItemOutcome("skip_sha")
-
-        raw_path = paths.raw_path(data_root, item.news_item_id, item.approve_date, source_format="hwpx")
-        md_path = paths.md_path(data_root, item.news_item_id, item.approve_date)
-        paths.atomic_write_bytes(raw_path, downloaded.content)
-
-        try:
-            md_text = _convert_raw_to_md(raw_path)
-        except Exception as exc:
-            LOG.error("conversion failed item=%s err=%s", item.news_item_id, exc)
-            _append_failed_queue(
-                data_root / "fetch-log" / "failed.jsonl",
-                item.news_item_id,
-                f"conversion_failed: {type(exc).__name__}: {str(exc)}",
-            )
-            return ItemOutcome("conversion_failed")
-
-        govpress_version, govpress_commit = _converter_metadata()
-        revision = existing.revision + 1 if existing else 1
-        md_text = frontmatter.prepend(
-            md_text,
-            frontmatter.build(
+        if selection.source_format == "hwpx":
+            if not downloaded.is_zip_container:
+                return _store_binary_attachment(
+                    item=item,
+                    downloaded=downloaded,
+                    data_root=data_root,
+                    checksum_store=checksum_store,
+                    source_format="hwp",
+                    queue_kind="hwp",
+                    queue_reason="hwp_legacy",
+                    outcome_status="hwp_legacy",
+                    started=started,
+                )
+            return _store_hwpx_markdown(
                 item=item,
-                entity_type=entity_classify.classify(item.department),
-                sha256=sha256,
-                revision=revision,
-                raw_path=raw_path.relative_to(data_root),
-                govpress_version=govpress_version,
-                govpress_commit=govpress_commit,
-                source_format="hwpx",
-            ),
+                downloaded=downloaded,
+                data_root=data_root,
+                checksum_store=checksum_store,
+                started=started,
+            )
+        if selection.source_format == "hwp":
+            return _store_binary_attachment(
+                item=item,
+                downloaded=downloaded,
+                data_root=data_root,
+                checksum_store=checksum_store,
+                source_format="hwp",
+                queue_kind="hwp",
+                queue_reason=selection.queue_reason or "no_primary_hwpx_hwp_attachment",
+                outcome_status="hwp_attachment",
+                started=started,
+            )
+        return _store_binary_attachment(
+            item=item,
+            downloaded=downloaded,
+            data_root=data_root,
+            checksum_store=checksum_store,
+            source_format="pdf",
+            queue_kind="pdf",
+            queue_reason=selection.queue_reason or "no_primary_hwpx",
+            outcome_status="pdf_collected",
+            started=started,
         )
-        paths.atomic_write_text(md_path, md_text)
-        checksum_store.put(
-            news_item_id=item.news_item_id,
+
+
+def _store_binary_attachment(
+    *,
+    item: PolicyBriefingItem,
+    downloaded: DownloadedPolicyBriefingFile,
+    data_root: Path,
+    checksum_store: checksums.Store,
+    source_format: str,
+    queue_kind: str,
+    queue_reason: str,
+    outcome_status: str,
+    started: float | None = None,
+) -> ItemOutcome:
+    sha256 = hashlib.sha256(downloaded.content).hexdigest()
+    existing = checksum_store.get(item.news_item_id)
+    if existing and existing.sha256 == sha256 and existing.source_format == source_format:
+        LOG.info("SKIP: already fetched, sha256=%s", sha256)
+        return ItemOutcome("skip_sha", sha256=sha256)
+
+    raw_path = paths.raw_path(data_root, item.news_item_id, item.approve_date, source_format=source_format)
+    paths.atomic_write_bytes(raw_path, downloaded.content)
+    revision = existing.revision + 1 if existing else 1
+    checksum_store.put(
+        news_item_id=item.news_item_id,
+        sha256=sha256,
+        revision=revision,
+        fetched_at=datetime.now(UTC),
+        source_format=source_format,
+    )
+    if queue_kind == "hwp":
+        _append_hwp_queue(
+            data_root / "fetch-log" / "hwp-queue.jsonl",
+            item=item,
+            hwp_path=raw_path.relative_to(data_root),
+            reason=queue_reason,
+        )
+        LOG.info("queued HWP item=%s sha256=%s reason=%s", item.news_item_id, sha256, queue_reason)
+    else:
+        _append_pdf_queue(data_root / "fetch-log" / "pdf-queue.jsonl", item=item, reason=queue_reason)
+        LOG.info("queued PDF item=%s sha256=%s reason=%s", item.news_item_id, sha256, queue_reason)
+    elapsed = 0.0 if started is None else asyncio.get_running_loop().time() - started
+    return ItemOutcome(outcome_status, duration_seconds=elapsed, sha256=sha256)
+
+
+def _store_hwpx_markdown(
+    *,
+    item: PolicyBriefingItem,
+    downloaded: DownloadedPolicyBriefingFile,
+    data_root: Path,
+    checksum_store: checksums.Store,
+    started: float,
+) -> ItemOutcome:
+    sha256 = hashlib.sha256(downloaded.content).hexdigest()
+    existing = checksum_store.get(item.news_item_id)
+    if existing and existing.sha256 == sha256:
+        LOG.info("SKIP: already fetched, sha256=%s", sha256)
+        return ItemOutcome("skip_sha", sha256=sha256)
+
+    raw_path = paths.raw_path(data_root, item.news_item_id, item.approve_date, source_format="hwpx")
+    md_path = paths.md_path(data_root, item.news_item_id, item.approve_date)
+    paths.atomic_write_bytes(raw_path, downloaded.content)
+
+    try:
+        md_text = _convert_raw_to_md(raw_path)
+    except Exception as exc:
+        LOG.error("conversion failed item=%s err=%s", item.news_item_id, exc)
+        _append_failed_queue(
+            data_root / "fetch-log" / "failed.jsonl",
+            item.news_item_id,
+            f"conversion_failed: {type(exc).__name__}: {str(exc)}",
+        )
+        return ItemOutcome("conversion_failed")
+
+    govpress_version, govpress_commit = _converter_metadata()
+    revision = existing.revision + 1 if existing else 1
+    md_text = frontmatter.prepend(
+        md_text,
+        frontmatter.build(
+            item=item,
+            entity_type=entity_classify.classify(item.department),
             sha256=sha256,
             revision=revision,
-            fetched_at=datetime.now(UTC),
+            raw_path=raw_path.relative_to(data_root),
             govpress_version=govpress_version,
             govpress_commit=govpress_commit,
             source_format="hwpx",
-        )
-        LOG.info("stored item=%s sha256=%s", item.news_item_id, sha256)
-        elapsed = asyncio.get_running_loop().time() - started
-        return ItemOutcome("success", duration_seconds=elapsed, sha256=sha256)
+        ),
+    )
+    paths.atomic_write_text(md_path, md_text)
+    checksum_store.put(
+        news_item_id=item.news_item_id,
+        sha256=sha256,
+        revision=revision,
+        fetched_at=datetime.now(UTC),
+        govpress_version=govpress_version,
+        govpress_commit=govpress_commit,
+        source_format="hwpx",
+    )
+    LOG.info("stored item=%s sha256=%s", item.news_item_id, sha256)
+    elapsed = asyncio.get_running_loop().time() - started
+    return ItemOutcome("success", duration_seconds=elapsed, sha256=sha256)
 
 
-def _handle_missing_hwpx(item: PolicyBriefingItem, data_root: Path) -> ItemOutcome:
-    if item.primary_pdf is not None:
-        _append_pdf_queue(data_root / "fetch-log" / "pdf-queue.jsonl", item=item, reason="no_primary_hwpx")
-        LOG.info("SKIP: queued pdf fallback item=%s reason=no_primary_hwpx", item.news_item_id)
-        return ItemOutcome("pdf_queue_no_primary_hwpx")
-
-    reason = _non_pdf_skip_reason(item)
-    LOG.info("SKIP: %s item=%s", reason, item.news_item_id)
-    return ItemOutcome(reason)
-
-
-def _handle_download_exception(item: PolicyBriefingItem, exc: Exception, data_root: Path) -> ItemOutcome:
+def _handle_download_exception(
+    *,
+    item: PolicyBriefingItem,
+    selection: AttachmentSelection,
+    exc: Exception,
+    data_root: Path,
+) -> ItemOutcome:
     reason = _classify_download_failure(exc)
-    if reason in {"hwpx_html_error_page", "hwpx_empty_payload"}:
+    if selection.source_format == "hwpx" and reason in {"hwpx_html_error_page", "hwpx_empty_payload"}:
         if item.primary_pdf is not None:
             _append_pdf_queue(data_root / "fetch-log" / "pdf-queue.jsonl", item=item, reason=reason)
             LOG.info("SKIP: queued pdf fallback item=%s reason=%s", item.news_item_id, reason)
@@ -570,6 +695,33 @@ def _non_pdf_skip_reason(item: PolicyBriefingItem) -> str:
     return "no_attachments"
 
 
+def _select_best_attachment(item: PolicyBriefingItem) -> AttachmentSelection | None:
+    if item.primary_hwpx is not None:
+        return AttachmentSelection(source_format="hwpx", attachment=item.primary_hwpx)
+    primary_hwp = _select_primary_hwp_attachment(item)
+    if primary_hwp is not None:
+        return AttachmentSelection(
+            source_format="hwp",
+            attachment=primary_hwp,
+            queue_reason="no_primary_hwpx_hwp_attachment",
+        )
+    if item.primary_pdf is not None:
+        return AttachmentSelection(
+            source_format="pdf",
+            attachment=item.primary_pdf,
+            queue_reason="no_primary_hwpx",
+        )
+    return None
+
+
+def _select_primary_hwp_attachment(item: PolicyBriefingItem) -> PolicyBriefingAttachment | None:
+    hwp_files = [attachment for attachment in item.attachments if attachment.extension == ".hwp"]
+    if not hwp_files:
+        return None
+    primary = next((attachment for attachment in hwp_files if not attachment.is_appendix), None)
+    return primary or hwp_files[0]
+
+
 def _list_items_with_retry(client: PolicyBriefingClient) -> Callable[[date], list[PolicyBriefingItem]]:
     @ratelimit.with_retry
     def inner(target_date: date) -> list[PolicyBriefingItem]:
@@ -578,10 +730,12 @@ def _list_items_with_retry(client: PolicyBriefingClient) -> Callable[[date], lis
     return inner
 
 
-def _download_item_with_retry(client: PolicyBriefingClient) -> Callable[[PolicyBriefingItem], DownloadedPolicyBriefingFile]:
+def _download_selected_attachment_with_retry(
+    client: PolicyBriefingClient,
+) -> Callable[[PolicyBriefingItem, AttachmentSelection], DownloadedPolicyBriefingFile]:
     @ratelimit.with_retry
-    def inner(item: PolicyBriefingItem) -> DownloadedPolicyBriefingFile:
-        return client.download_item_hwpx(item)
+    def inner(item: PolicyBriefingItem, selection: AttachmentSelection) -> DownloadedPolicyBriefingFile:
+        return client.download_attachment(item, selection.attachment)
 
     return inner
 
@@ -618,6 +772,18 @@ def _append_pdf_queue(path: Path, *, item: PolicyBriefingItem, reason: str) -> N
             "news_item_id": str(item.news_item_id),
             "approve_date": paths.approve_datetime(item.approve_date).date().isoformat(),
             "reason": reason,
+        },
+    )
+
+
+def _append_hwp_queue(path: Path, *, item: PolicyBriefingItem, hwp_path: Path, reason: str) -> None:
+    _append_jsonl(
+        path,
+        {
+            "news_item_id": str(item.news_item_id),
+            "approve_date": paths.approve_datetime(item.approve_date).date().isoformat(),
+            "reason": reason,
+            "hwp_path": hwp_path.as_posix(),
         },
     )
 
@@ -698,14 +864,6 @@ def _assert_allowed_target(url: str) -> None:
 
 def _check_emergency_conditions(data_root: Path, stats: AggregateStats, milestone: str) -> None:
     processed_primary = stats.successful + stats.skip_sha + stats.hwp_legacy + stats.conversion_failed
-    if stats.hwp_legacy > 0 and processed_primary >= 10 and (stats.hwp_legacy / processed_primary) > 0.10:
-        raise SystemExit(
-            "EMERGENCY STOP: HWP 구버전 비율 10% 초과\n"
-            f"- 감지 시각: {_now_kst_text()}\n"
-            f"- 진행 중이던 단계: {milestone}\n"
-            f"- 영향 범위: hwp_legacy={stats.hwp_legacy}, processed_primary={processed_primary}\n"
-            "- 자동 복구 시도 여부: NO (사람 판단 대기)"
-        )
     if processed_primary > 0 and (stats.conversion_failed / processed_primary) > 0.05:
         raise SystemExit(
             "EMERGENCY STOP: is_zip_container=True 대비 변환 실패율 5% 초과\n"
@@ -840,6 +998,7 @@ def _write_backfill_progress_snapshot(
         f"- 누적 HWPX 성공: {stats.effective_success}",
         f"- 누적 pdf_queue: {stats.pdf_queue}",
         f"- 누적 hwp_legacy: {stats.hwp_legacy}",
+        f"- 누적 hwp_attachment: {stats.hwp_attachment}",
         f"- 누적 conversion_failed: {stats.conversion_failed}",
         f"- 누적 failed: {stats.failed}",
     ]

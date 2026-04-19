@@ -1,36 +1,29 @@
 # M2 리허설 리포트
 
-- 실행 기간: 2026-04-18 13:32 ~ 2026-04-18 13:47 KST
-- 범위: 2026-03-01 ~ 2026-03-31 (31 일)
-- 전체 대상 건수: 2839
-- 성공 건수: 2317 (2317/2839 = 81.6%)
+- 실행 기간: 2026-04-19 21:43 ~ 2026-04-19 21:43 KST
+- 범위: 2026-03-26 ~ 2026-03-26 (1 일)
+- 전체 대상 건수: 162
+- HWPX 성공 건수: 158 (158/161 = 98.1%)
 - skip 분포:
-  - hwp_legacy: 84건 (3.0%)
-  - no_primary_hwpx: 427건 (15.0%)
-  - conversion_failed: 7건 (0.2%)
+  - hwp_legacy: 0건 (0.0%)
+  - pdf_queue: 1건 (0.6%)
+  - odt_only/no_attachments: 3건 (1.9%)
+  - conversion_failed: 0건 (0.0%)
+- 다운로드 실패 유형:
+  - hwpx_html_error_page: 1건
+  - hwpx_empty_payload: 0건
+  - connection_error: 0건
+  - 기타: 0건
 - 처리 시간:
-  - 중위값: 0.3 초/건
-  - 95퍼센타일: 0.6 초/건
-  - 최대: 2.6 초/건
+  - 중위값: 0.0 초/건
+  - 95퍼센타일: 0.0 초/건
+  - 최대: 0.0 초/건
 - 재시도 통계:
   - 429 발생: 0회, 그 중 성공: 0회 (100.0%)
   - 503 발생: 0회, 그 중 성공: 0회 (100.0%)
-- 디스크 사용량 증가:
-  - data/raw/2026/03/ — +3.11 GB
-  - data/md/2026/03/ — +0.01 GB
-  - 예측 대비: +56.2%
+## 기준 조정 사유
+- 2026-04-18 리허설 실측에서 no_primary_hwpx가 실제 소스 분포를 반영하는 항목으로 확인되어, M3부터는 pdf_queue로 분리해 성공률 모수에서 제외한다.
+- frontmatter는 v2(govpress_version, govpress_commit, source_format)로 통일하고 기존 산출물은 stamp_version.py로 백필했다.
 
 ## 비정상 신호
-- 성공률이 기준 미달입니다: 81.6% < 95.0%
-- no_primary_hwpx 비율이 기준 초과입니다: 15.0% >= 2.0%
-- 디스크 증가량이 예측 대비 허용 범위를 벗어났습니다: +56.2%
-- 비재시도 실패가 4건 발생했습니다.
-
-## 기준 조정 사유
-- 2026-04-18 AGENTS.md 개정으로 `no_primary_hwpx`는 소스 분포를 반영하는 참고용 bucket으로 재분류했다. M3부터는 `no_primary_hwpx` / `hwpx_html_error_page` / `hwpx_empty_payload`를 `pdf-queue` 기준으로 별도 추적한다.
-- frontmatter는 v2(`govpress_version`, `govpress_commit`, `source_format`)로 통일했고, 기존 M1+M2 산출물은 `stamp_version.py`로 백필 완료했다.
-- 디스크 기준은 절대 예측치가 아니라 M2 실측 raw `+3.11GB`를 기준점으로 삼아 `±60%` 허용으로 재조정했다.
-
-## 재판정
-- 기준 조정 후 M2는 통과로 판정한다.
-- 재판정 기준에서 `no_primary_hwpx`는 실패 조건이 아니며, M3의 `pdf-queue` 입력 규모를 추정하는 참고 지표로만 사용한다.
+- 없음
