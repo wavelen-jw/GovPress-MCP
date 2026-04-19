@@ -143,4 +143,59 @@ systemctl --user list-timers | grep govpress-mcp
 - 7일 연속 정상 동작 여부: YES/NO
 - 실패 일자: (있으면 나열)
 
-## LICENSE-data 파
+## LICENSE-data 파일
+- 위치: 레포 루트 `LICENSE-data`
+- 공공누리 1유형 전문 포함: YES
+- 데이터 소스 구조 설명 포함: YES
+
+## 누락·재시도 실패 건
+- 파일: data/fetch-log/failed.jsonl
+- 건수: N
+- 주요 사유: (분포)
+```
+
+### 3.4 LICENSE-data 파일 생성
+
+리포 루트에 `LICENSE-data` 파일 생성 (공공누리 1유형 전문 + 데이터 소스 구조 + 제3자 재사용 안내). 템플릿은 https://www.kogl.or.kr/info/license.do 제1유형 참고.
+
+frontmatter의 `license` 필드나 MCP footer는 추가하지 말 것 — 고지는 이 한 파일로만.
+
+---
+
+## M3 완료 조건 (전부 ✅ 될 때까지 종료 금지)
+
+AGENTS.md §4.3 그대로.
+
+- [ ] 5년 백필 전량 완료
+- [ ] HWPX 트랙 MD 개수가 korea.kr 공식 기관별 목록과 ±5% 이내
+- [ ] `data/fetch-log/pdf-queue.jsonl`에 5년치 pdf_queue 건 누락 없이 기록 (M4 입력으로 사용)
+- [ ] 생성된 모든 MD가 frontmatter v2 형식 (`grep -rl "extracted_by:" data/md/` → 0건)
+- [ ] systemd timer 등록 + 7일 연속 일일 증분 정상 동작
+- [ ] `docs/phase1-report.md` 작성 완료 (pdf-queue 요약 포함)
+- [ ] 리포 루트 `LICENSE-data` 파일 생성 완료
+
+---
+
+## M3 완료 보고 형식
+
+표준 출력 마지막 줄:
+
+```
+M3 완료. Phase 1 종료. 사람 확인 대기.
+```
+
+M3 완료 = **진짜 Phase 1 종료**. Codex는 여기서 멈추고 사람에게 반환한다. Phase 2(색인·derive_hot.py·Qdrant)는 Claude 세션에서 설계한 뒤 별도 프롬프트로 재진입.
+
+---
+
+## 비상 중단 재확인 (AGENTS.md §4.5)
+
+5년 백필은 최장 실행이라 비상 호출 조건을 특히 잘 지켜야 한다:
+
+- `api2.govpress.cloud` 호출 감지 → 즉시 EMERGENCY STOP
+- 서비스키 노출 감지 → 즉시 EMERGENCY STOP
+- HWP 구버전 비율 10% 초과 (전체 누적 기준) → EMERGENCY STOP
+- 429/503 1시간 이상 지속 → EMERGENCY STOP
+- `convert_hwpx` 실패율 5% 초과 (누적) → EMERGENCY STOP
+
+비상 호출 보고 형식은 AGENTS.md §4.5 참조. 자동 복구 시도 금지.

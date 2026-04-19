@@ -1,0 +1,37 @@
+Govpress MCP Data Notice
+
+This repository contains machine-converted derivatives of Korean government policy briefing press releases.
+
+Source
+
+- Primary source: korea.kr policy briefing API payloads and attached press-release files retrieved through `apis.data.go.kr`
+- Covered period in this Phase 1 backfill: `2021-04-18 ~ 2026-04-18`
+- Stored artifacts:
+  - raw HWPX files under `data/raw/{yyyy}/{mm}/`
+  - converted Markdown files under `data/md/{yyyy}/{mm}/`
+  - operational logs under `data/fetch-log/`
+
+Public Sector License Notice
+
+- The underlying public data is handled under the Korean Open Government License framework (`공공누리`) and related public-sector disclosure rules.
+- For source materials that are provided as `공공누리 제1유형`, reuse is generally permitted with source attribution.
+- Reusers remain responsible for checking the original source page and attached file for any item-specific notice, update, or restriction before redistribution or republication.
+
+Derivative Conversion Notice
+
+- Markdown files in this repository are derivative outputs produced by the Govpress conversion pipeline.
+- Conversion may normalize layout, tables, spacing, bullets, and metadata fields.
+- The authoritative source remains the original government publication and its attachment.
+
+Third-Party Reuse Guidance
+
+1. Keep source attribution to the originating ministry or local government body and the original release URL when redistributing converted content.
+2. Preserve context that the Markdown is a converted derivative, not the original attachment.
+3. When legal or compliance review matters, verify against the original release page and original attachment file.
+4. If an item is corrected or replaced upstream, prefer the latest official publication as the source of truth.
+
+Repository Scope
+
+- Code license and data notice are separate.
+- This file covers repository data artifacts and their reuse context.
+- Individual Markdown files do not duplicate the full notice in frontmatter; this repository-level notice is the canonical data notice.

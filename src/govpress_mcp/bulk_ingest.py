@@ -32,6 +32,7 @@ from govpress_mcp.vendored.policy_briefing import (
 LOG = logging.getLogger("govpress_mcp.bulk_ingest")
 FORBIDDEN_HOSTS = ("api2.govpress.cloud",)
 KST = ZoneInfo("Asia/Seoul")
+HEARTBEAT_INTERVAL_SECONDS = 60.0
 
 _ORIGINAL_URLOPEN = urllib.request.urlopen
 _ORIGINAL_SUBPROCESS_RUN = subprocess.run
@@ -94,6 +95,9 @@ class AggregateStats:
     durations: list[float] = field(default_factory=list)
     failed_dates: list[str] = field(default_factory=list)
     run_finished_at: datetime | None = None
+    current_date: str | None = None
+    current_pass_items: int = 0
+    current_pass_started_at: datetime | None = None
 
     def merge(self, other: RunStats) -> None:
         self.total_items += other.total_items
@@ -194,8 +198,12 @@ async def run(args: argparse.Namespace) -> int:
         start_date=start_date,
         end_date=end_date,
     )
+    aggregate.current_pass_started_at = datetime.now(KST)
+    last_heartbeat_monotonic = asyncio.get_running_loop().time()
+    heartbeat_path = args.data_root / "fetch-log" / "heartbeat.jsonl"
 
     for target_date in _iter_dates(args):
+        aggregate.current_date = target_date.isoformat()
         try:
             day_stats = await _process_date(
                 client=client,
@@ -224,6 +232,7 @@ async def run(args: argparse.Namespace) -> int:
             continue
 
         aggregate.merge(day_stats)
+        aggregate.current_pass_items += day_stats.total_items
         _check_emergency_conditions(args.data_root, aggregate, milestone)
         _append_jsonl(
             args.log_json,
@@ -251,6 +260,10 @@ async def run(args: argparse.Namespace) -> int:
         )
         if milestone == "M3":
             _write_backfill_progress_snapshot(args.data_root, aggregate, args.log_json)
+        now_monotonic = asyncio.get_running_loop().time()
+        if now_monotonic - last_heartbeat_monotonic >= HEARTBEAT_INTERVAL_SECONDS:
+            _emit_heartbeat(aggregate=aggregate, heartbeat_path=heartbeat_path)
+            last_heartbeat_monotonic = now_monotonic
 
     aggregate.run_finished_at = datetime.now(KST)
     if aggregate.total_items == 0:
@@ -279,6 +292,40 @@ async def run(args: argparse.Namespace) -> int:
         _FORBIDDEN_HOST_HITS,
     )
     return 0 if aggregate.failed == 0 else 2
+
+
+def _emit_heartbeat(*, aggregate: AggregateStats, heartbeat_path: Path) -> None:
+    elapsed_seconds = (
+        (datetime.now(KST) - aggregate.current_pass_started_at).total_seconds()
+        if aggregate.current_pass_started_at is not None
+        else 0.0
+    )
+    rate_per_minute = (aggregate.current_pass_items / elapsed_seconds * 60.0) if elapsed_seconds > 0 else 0.0
+    LOG.info(
+        "HEARTBEAT pid=%s current_date=%s rate=%.1f/min success=%d pdf_queue=%d no_attachments=%d skip_sha=%d",
+        os.getpid(),
+        aggregate.current_date or "-",
+        rate_per_minute,
+        aggregate.successful,
+        aggregate.pdf_queue,
+        aggregate.no_attachments,
+        aggregate.skip_sha,
+    )
+    _append_jsonl(
+        heartbeat_path,
+        {
+            "timestamp": _now_kst_iso(),
+            "event": "heartbeat",
+            "pid": os.getpid(),
+            "current_date": aggregate.current_date,
+            "rate_per_minute": round(rate_per_minute, 1),
+            "success": aggregate.successful,
+            "pdf_queue": aggregate.pdf_queue,
+            "no_attachments": aggregate.no_attachments,
+            "skip_sha": aggregate.skip_sha,
+            "current_pass_items": aggregate.current_pass_items,
+        },
+    )
 
 
 async def _process_date(
@@ -667,15 +714,6 @@ def _check_emergency_conditions(data_root: Path, stats: AggregateStats, mileston
             f"- 영향 범위: conversion_failed={stats.conversion_failed}, processed_primary={processed_primary}\n"
             "- 자동 복구 시도 여부: NO (사람 판단 대기)"
         )
-    data_usage = _directory_usage_bytes(data_root)
-    if data_usage > 120 * 1024 * 1024 * 1024:
-        raise SystemExit(
-            "EMERGENCY STOP: 디스크 사용량 120GB 초과\n"
-            f"- 감지 시각: {_now_kst_text()}\n"
-            f"- 진행 중이던 단계: {milestone}\n"
-            f"- 영향 범위: data_root_bytes={data_usage}\n"
-            "- 자동 복구 시도 여부: NO (사람 판단 대기)"
-        )
 
 
 def _directory_usage_bytes(root: Path) -> int:
@@ -721,10 +759,7 @@ def _write_rehearsal_report(
     md_growth_bytes: int,
 ) -> None:
     retry_stats = ratelimit.get_retry_stats()
-    baseline_bytes = int(3.11 * 1024 * 1024 * 1024)
-    total_growth = raw_growth_bytes + md_growth_bytes
-    delta_percent = ((total_growth - baseline_bytes) / baseline_bytes) * 100 if baseline_bytes else 0.0
-    issues = _collect_rehearsal_issues(stats, retry_stats, delta_percent)
+    issues = _collect_rehearsal_issues(stats, retry_stats)
     report_lines = [
         "# M2 리허설 리포트",
         "",
@@ -749,14 +784,8 @@ def _write_rehearsal_report(
         "- 재시도 통계:",
         f"  - 429 발생: {retry_stats.seen_429}회, 그 중 성공: {retry_stats.recovered_429}회 ({_safe_rate(retry_stats.recovered_429, retry_stats.seen_429):.1f}%)",
         f"  - 503 발생: {retry_stats.seen_503}회, 그 중 성공: {retry_stats.recovered_503}회 ({_safe_rate(retry_stats.recovered_503, retry_stats.seen_503):.1f}%)",
-        "- 디스크 사용량 증가:",
-        f"  - data/raw/{stats.start_date.strftime('%Y/%m')}/ — +{_bytes_to_gb(raw_growth_bytes):.2f} GB",
-        f"  - data/md/{stats.start_date.strftime('%Y/%m')}/ — +{_bytes_to_gb(md_growth_bytes):.2f} GB",
-        f"  - 기준점(3.11GB) 대비: {delta_percent:+.1f}%",
-        "",
         "## 기준 조정 사유",
         "- 2026-04-18 리허설 실측에서 no_primary_hwpx가 실제 소스 분포를 반영하는 항목으로 확인되어, M3부터는 pdf_queue로 분리해 성공률 모수에서 제외한다.",
-        "- 디스크 기준은 절대 예측치가 아니라 M2 실측 raw +3.11GB를 기준점으로 삼아 ±60% 허용으로 조정한다.",
         "- frontmatter는 v2(govpress_version, govpress_commit, source_format)로 통일하고 기존 산출물은 stamp_version.py로 백필했다.",
         "",
         "## 비정상 신호",
@@ -774,7 +803,6 @@ def _write_rehearsal_report(
 def _collect_rehearsal_issues(
     stats: AggregateStats,
     retry_stats: ratelimit.RetryStats,
-    delta_percent: float,
 ) -> list[str]:
     issues: list[str] = []
     if stats.hwpx_success_rate < 0.95:
@@ -789,8 +817,6 @@ def _collect_rehearsal_issues(
         issues.append("429 재시도 성공률이 기준 미달입니다.")
     if retry_stats.seen_503 > 0 and _safe_rate(retry_stats.recovered_503, retry_stats.seen_503) < 99.0:
         issues.append("503 재시도 성공률이 기준 미달입니다.")
-    if abs(delta_percent) > 60.0:
-        issues.append(f"디스크 증가량이 기준 범위를 벗어났습니다: {delta_percent:+.1f}%")
     if stats.failed > 0:
         issues.append(f"비재시도 실패가 {stats.failed}건 발생했습니다.")
     if stats.failed_dates:

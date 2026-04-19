@@ -89,12 +89,15 @@
 
 ## 데이터
 
-- **범위**: 2021-04 ~ 2026-04 (5년치, 약 52,000건)
-- **출처**: 중앙부처 보도자료 (기재부·산업부·과기정통부·환경부·교육부·국토부 등)
-- **변환**: HWPX → Markdown (Govpress 변환 엔진 v0.3.x)
+- **범위**: `2021-04-18 ~ 2026-04-18`
+- **적재 결과**: Markdown `93,353`건 생성, HWPX 성공 `91,086`건, PDF 대기열 `42,650`건
+- **원본 저장량**: raw `143.83 GiB`, markdown `0.70 GiB`
+- **변환**: HWPX 우선 파이프라인, `govpress-converter` 기반 Markdown 변환
+- **M3 결과 보고서**: [`docs/phase1-report.md`](docs/phase1-report.md)
+- **데이터 고지**: [`LICENSE-data`](LICENSE-data)
 - **OpenAPI payload 평가**: [`vendor/gov-md-converter/docs/policy-briefing-openapi-payload-assessment-2026-04-19.md`](vendor/gov-md-converter/docs/policy-briefing-openapi-payload-assessment-2026-04-19.md)  
   실제 `pressReleaseList` XML payload를 표본 호출해 `DataContents`, `ContentsType`, 첨부 필드 구조를 점검한 메모. 결론은 API 본문만으로는 원문 품질 Markdown 소스로 부족하고, 첨부 HWP/HWPX/PDF 변환이 필요하다는 것이다.
-- **저장소**: [`policy-briefing-kr`](https://github.com/USER/policy-briefing-kr) (공개 Git 리포)
+- **M3 진행 요약**: 5년 백필 완료, `forbidden_host_hits=0`, 최종 재개 런 `successful=14,479`, `skip_sha=3,069`, `pdf_queue=1,622`
 - **인덱스**: SQLite FTS5 + Qdrant (BGE-M3 임베딩, 청크 단위)
 
 ## 빠른 시작
