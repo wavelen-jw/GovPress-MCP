@@ -105,17 +105,19 @@ Interpretation:
 
 ## Queue Files
 
-Queue files are historical append-only logs and should not be interpreted as final corpus counts without deduplicating by `news_item_id`.
+Queue handling changed after the original M3 single-pass reconciliation:
 
-| Queue file | Rows | Unique document IDs | Duplicate rows |
-|---|---:|---:|---:|
-| `hwp-queue.jsonl` | `33,853` | `33,853` | `0` |
-| `pdf-queue.jsonl` | `43,748` | `20,830` | `22,918` |
+| Queue file | Rows | Meaning |
+|---|---:|---|
+| `hwp-queue.jsonl` | `33,853` | Canonical one-row-per-document HWP queue |
+| `pdf-queue.jsonl` | `287` | Normalized current PDF queue after dedupe and retained-corpus filtering |
+| `pdf-queue.original-20260419-214848.jsonl` | `43,754` | Historical append-only PDF queue backup |
 
 Interpretation:
 
-- `hwp-queue.jsonl` is already one-row-per-document.
-- `pdf-queue.jsonl` contains substantial historical duplication from rehearsal, restart, and retry paths.
+- `hwp-queue.jsonl` remains canonical and one-row-per-document.
+- The original PDF queue accumulated rehearsal, restart, and retry history, so it was preserved under a backup name.
+- The current `pdf-queue.jsonl` is the normalized post-M3 queue and should be treated as the canonical current queue.
 
 ## Operational Status Counts
 

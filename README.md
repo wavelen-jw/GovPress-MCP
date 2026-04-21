@@ -92,17 +92,23 @@
 ## 데이터
 
 - **범위**: `2021-04-18 ~ 2026-04-18`
-- **문서ID 기준 최종 분류**: HWPX `95,084`, HWP `33,853`, PDF `915`, `no_attachments` `3,076`, `odt_only` `2`, unresolved failed `367`
-- **최종 적재 결과**: Markdown `95,084`건, HWP 큐 `33,853`건, 최종 PDF 원본 `915`건
-- **원본 저장량**: raw `199.84 GiB`, markdown `0.72 GiB`
+- **M5 완료 후 최종 적재 결과**: Markdown `129,901`건, HWPX `128,884`, 잔여 HWP `53`, PDF `1,025`
+- **M4 변환 결과**: `33,853`건 중 `33,800`건 변환 성공, `52`건 `hwp_distribution_only`, `1`건 `conversion_failed`
+- **M4 변환 속도**: 본 실행 평균 `493.2건/분` (`8.22건/초`), 평균 처리시간 `0.048초/건`
+- **M5 PDF 백필 결과**: 총 `1,202`건 중 `1,017`건 성공 (`기존 raw PDF 907 + 신규 다운로드 110`), `conversion_failed 10`, `download_failed 175`
+- **M5 변환 속도**: 전체 wall-clock 기준 `20.3건/분` (`0.338건/초`)
+- **원본 저장량**: raw `250.30 GiB`, markdown `1.05 GiB`
 - **변환 우선순위**: `hwpx > hwp > pdf`
 - **변환**: `govpress-converter` 기반 Markdown 변환
-- **M3 결과 보고서**: [`docs/phase1-report.md`](docs/phase1-report.md)
+- **Phase 1 최종 보고서**: [`docs/phase1-report.md`](docs/phase1-report.md)
 - **M3 최종 통계**: [`docs/m3-final-stats.md`](docs/m3-final-stats.md)
+- **M4 HWP 재처리 보고서**: [`docs/m4-hwp-report.md`](docs/m4-hwp-report.md)
+- **M5 PDF 백필 보고서**: [`docs/m5-report.md`](docs/m5-report.md)
 - **데이터 고지**: [`LICENSE-data`](LICENSE-data)
 - **OpenAPI payload 평가**: [`vendor/gov-md-converter/docs/policy-briefing-openapi-payload-assessment-2026-04-19.md`](vendor/gov-md-converter/docs/policy-briefing-openapi-payload-assessment-2026-04-19.md)  
   실제 `pressReleaseList` XML payload를 표본 호출해 `DataContents`, `ContentsType`, 첨부 필드 구조를 점검한 메모. 결론은 API 본문만으로는 원문 품질 Markdown 소스로 부족하고, 첨부 HWP/HWPX/PDF 변환이 필요하다는 것이다.
-- **M3 / 단일 패스 요약**: 5년 백필 완료 후 단일 패스 재수집까지 완료, `forbidden_host_hits=0`, `skip_sha` 문서ID `100,839`, 최종 unresolved failed 문서ID `367`
+- **M4 잔여 이슈**: `hwp_distribution_only 52`, `conversion_failed 1`, `date_failed 0`
+- **M5 잔여 이슈**: `conversion_failed 10`, `download_failed_html_error_page 163`, `download_failed_empty_payload 12`, `date_failed 0`
 - **인덱스**: SQLite FTS5 + Qdrant (BGE-M3 임베딩, 청크 단위)
 
 ## 빠른 시작
