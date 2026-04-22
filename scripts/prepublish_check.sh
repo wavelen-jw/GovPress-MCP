@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 echo "[1/5] tracked secret patterns"
-if git grep -nE '(GOVPRESS_POLICY_BRIEFING_SERVICE_KEY=|cfut_|CLOUDFLARE_TUNNEL_TOKEN=|BEGIN PRIVATE KEY)' -- . ':!LICENSE-data' ':!.env.example'; then
+if git grep -nE '(GOVPRESS_POLICY_BRIEFING_SERVICE_KEY=|cfut_|CLOUDFLARE_TUNNEL_TOKEN=|BEGIN PRIVATE KEY)' -- . ':!LICENSE-data' ':!.env.example' ':!scripts/prepublish_check.sh'; then
   echo "secret-like pattern found"
   exit 1
 fi
