@@ -4,6 +4,7 @@ import json
 import time
 from typing import Any, Callable
 
+import uvicorn
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from starlette.requests import Request
@@ -48,6 +49,37 @@ READ_ONLY_TOOL = ToolAnnotations(
     idempotentHint=True,
     openWorldHint=False,
 )
+
+
+class AcceptCompatMiddleware:
+    """Normalize permissive Accept headers for MCP clients like AnythingLLM."""
+
+    def __init__(self, app: Any):
+        self.app = app
+
+    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        if scope.get("type") == "http" and scope.get("path") == "/mcp":
+            headers = list(scope.get("headers", []))
+            accept_index = next((i for i, (name, _) in enumerate(headers) if name == b"accept"), None)
+            accept_value = headers[accept_index][1].decode("latin-1") if accept_index is not None else ""
+            normalized = accept_value.replace(" ", "").lower()
+            method = str(scope.get("method", "GET")).upper()
+            has_json = "application/json" in normalized
+            has_sse = "text/event-stream" in normalized
+            if method == "GET":
+                needs_rewrite = not has_sse
+                replacement = b"application/json, text/event-stream"
+            else:
+                needs_rewrite = not has_json
+                replacement = b"application/json"
+            if needs_rewrite:
+                if accept_index is None:
+                    headers.append((b"accept", replacement))
+                else:
+                    headers[accept_index] = (b"accept", replacement)
+                scope = dict(scope)
+                scope["headers"] = headers
+        await self.app(scope, receive, send)
 
 
 def _run_logged(tool_name: str, arguments: dict[str, Any], fn: Callable[[], dict]) -> dict:
@@ -281,7 +313,15 @@ def main_stdio() -> None:
 
 
 def main_sse() -> None:
-    app.run(transport="streamable-http")
+    compat_app = AcceptCompatMiddleware(app.streamable_http_app())
+    config = uvicorn.Config(
+        compat_app,
+        host="127.0.0.1",
+        port=_SETTINGS.mcp_port,
+        log_level="info",
+    )
+    server = uvicorn.Server(config)
+    server.run()
 
 
 if __name__ == "__main__":
