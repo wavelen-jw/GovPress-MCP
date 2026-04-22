@@ -111,10 +111,30 @@ Claude: "기후위기 적응 관련 최신 보도자료 5건만 찾아줘."
 - [`docs/derive-hot-report.md`](docs/derive-hot-report.md)
 - [`docs/t4-cloudflare-report.md`](docs/t4-cloudflare-report.md)
 - [`docs/reconvert-report.md`](docs/reconvert-report.md)
+- [`docs/mcp-test-examples.md`](docs/mcp-test-examples.md)
+- [`docs/mcp-question-examples.md`](docs/mcp-question-examples.md)
+
+## 운영 점검
+
+MCP 사용 현황은 로컬 대시보드에서 확인할 수 있습니다.
+
+- HTML 대시보드: `http://127.0.0.1:8001/dashboard`
+- JSON 요약: `http://127.0.0.1:8001/dashboard/usage.json`
+- 원본 로그: `data/fetch-log/mcp-usage.jsonl`
+
+기록 항목:
+
+- 호출 시각
+- 도구명
+- 인자
+- 응답 크기
+- 지연 시간
+- record_count
+- cache_hit
+- 성공/실패 상태
 
 ## 개발 메모
 
 - 작업 루트: `/home/wavel/projects/govpress-mcp`
 - 데이터 루트: `/home/wavel/projects/govpress-mcp/data`
 - WSL 네이티브 경로만 사용, `/mnt/c/...` 금지
-

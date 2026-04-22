@@ -13,6 +13,7 @@ DEFAULT_DB_PATH = DEFAULT_DATA_ROOT / "govpress.db"
 DEFAULT_QDRANT_URL = "http://localhost:6333"
 DEFAULT_TEI_URL = "http://localhost:18080"
 DEFAULT_MCP_PORT = 8000
+DEFAULT_USAGE_LOG_PATH = DEFAULT_DATA_ROOT / "fetch-log" / "mcp-usage.jsonl"
 RESPONSE_SIZE_LIMIT = 50 * 1024
 
 
@@ -33,6 +34,7 @@ class Settings:
     qdrant_url: str = DEFAULT_QDRANT_URL
     tei_url: str = DEFAULT_TEI_URL
     mcp_port: int = DEFAULT_MCP_PORT
+    usage_log_path: Path = DEFAULT_USAGE_LOG_PATH
 
 
 def load_settings() -> Settings:
@@ -41,7 +43,15 @@ def load_settings() -> Settings:
     qdrant_url = os.environ.get("QDRANT_URL", DEFAULT_QDRANT_URL)
     tei_url = os.environ.get("TEI_URL", DEFAULT_TEI_URL)
     mcp_port = int(os.environ.get("MCP_PORT", str(DEFAULT_MCP_PORT)))
-    return Settings(data_root=data_root, db_path=db_path, qdrant_url=qdrant_url, tei_url=tei_url, mcp_port=mcp_port)
+    usage_log_path = Path(os.environ.get("USAGE_LOG_PATH", str(DEFAULT_USAGE_LOG_PATH))).expanduser().resolve()
+    return Settings(
+        data_root=data_root,
+        db_path=db_path,
+        qdrant_url=qdrant_url,
+        tei_url=tei_url,
+        mcp_port=mcp_port,
+        usage_log_path=usage_log_path,
+    )
 
 
 def make_meta(started_at: float, *, record_count: int, cache_hit: bool = False, **extra: object) -> dict[str, object]:
