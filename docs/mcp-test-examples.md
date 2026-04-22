@@ -25,7 +25,7 @@ curl -sS https://mcp.govpress.cloud/mcp \
 예상 결과:
 
 ```json
-8
+7
 ```
 
 ### 2. get_stats
@@ -211,31 +211,6 @@ curl -sS https://mcp.govpress.cloud/mcp \
 - 노드 2개 이상
 - `approve_date` 오름차순
 
-### 9. compare_versions
-
-```bash
-curl -sS https://mcp.govpress.cloud/mcp \
-  -H 'Accept: application/json, text/event-stream' \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": 9,
-    "method": "tools/call",
-    "params": {
-      "name": "compare_versions",
-      "arguments": {
-        "briefing_id": "156445671"
-      }
-    }
-  }' | jq -r '.result.content[0].text | fromjson | .data'
-```
-
-예상 결과:
-
-- `experimental: true`
-- `note: "checksums_history 누적 후 활성화 예정"`
-- `versions: []`
-
 ## 로컬 서버 테스트
 
 공개 URL 대신 로컬에서 바로 검증하려면 URL만 바꾸면 된다.
@@ -254,11 +229,9 @@ curl -sS http://127.0.0.1:8001/mcp \
 
 ## 빠른 점검 체크리스트
 
-- `tools/list == 8`
+- `tools/list == 7`
 - `get_stats.doc_count == 130012`
 - `fts_search("탄소중립")` 결과 1건 이상
 - `search_briefing("탄소중립")` 결과 1건 이상
 - `cross_check_ministries("탄소중립")` 부처 2개 이상
 - `trace_policy("탄소중립")` 노드 2개 이상
-- `compare_versions("156445671")` 는 experimental 스텁 응답
-

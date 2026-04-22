@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "govpress-mcp"
 version = "0.1.0"
-description = "Govpress MCP bulk ingestion pipeline"
+description = "Govpress MCP server for Korean policy briefing search and analysis"
 requires-python = ">=3.10"
 dependencies = [
     "httpx",

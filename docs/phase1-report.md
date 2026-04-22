@@ -1,15 +1,8 @@
 # Phase 1 Final Report
 
-Phase 1 is complete for the target range `2021-04-18 ~ 2026-04-18`.
+범위: `2021-04-18 ~ 2026-04-18`
 
-This report is the final umbrella summary for:
-
-- M3: HWPX backfill and queue construction
-- M3.5: HWP transfer preparation for COM conversion on server H
-- M4: HWPX reprocess from `hwp-queue.jsonl`
-- M5: PDF backfill from `pdf-queue.jsonl`
-
-Detailed M3-only retained-corpus analysis is maintained separately in [`m3-final-stats.md`](m3-final-stats.md).
+Phase 1은 정책브리핑 원문을 수집해 Markdown corpus를 만드는 단계였다. 이 문서는 M3~M5의 공개용 최종 결과만 요약한다.
 
 ## Final Corpus
 
@@ -56,7 +49,13 @@ Yearly Markdown counts:
 - HWPX conversion success during base backfill: `91,086`
 - HWP queue constructed: `33,853`
 - PDF fallback queue identified and later normalized for M5
-- Detailed retained-corpus breakdown: [`m3-final-stats.md`](m3-final-stats.md)
+- M3 retained-corpus 최종 분포:
+  - `stored_hwpx`: `95,084`
+  - `stored_hwp`: `33,853`
+  - `stored_pdf`: `915`
+  - `no_attachments`: `3,076`
+  - `odt_only`: `2`
+  - unresolved failed: `367`
 
 ### M3.5 — HWP Transfer Preparation
 
@@ -72,7 +71,6 @@ Yearly Markdown counts:
 - `conversion_failed`: `1`
 - Final `date_failed`: `0`
 - Success rate: `99.84%`
-- Report: [`m4-hwp-report.md`](m4-hwp-report.md)
 
 ### M5 — PDF Backfill
 
@@ -85,12 +83,11 @@ Yearly Markdown counts:
   - total: `1,017`
 - Failure:
   - `conversion_failed`: `10`
-  - `other_download_failed`: `175`
+- `other_download_failed`: `175`
     - `download_failed_html_error_page`: `163`
     - `download_failed_empty_payload`: `12`
 - Final `date_failed`: `0`
 - Success rate: `84.61%`
-- Report: [`m5-report.md`](m5-report.md)
 
 ## Queue Snapshot
 
@@ -148,9 +145,6 @@ Operational interpretation:
 
 ## Artifact Index
 
-- M3 retained-corpus statistics: [`m3-final-stats.md`](m3-final-stats.md)
-- M4 report: [`m4-hwp-report.md`](m4-hwp-report.md)
-- M5 report: [`m5-report.md`](m5-report.md)
 - Data notice: [`../LICENSE-data`](../LICENSE-data)
 - HWP transfer manifest: `data/fetch-log/hwp-transfer-manifest.txt`
 - HWP distribution-only list: `data/fetch-log/hwpx-missing-52.txt`

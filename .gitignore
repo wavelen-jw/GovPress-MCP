@@ -13,6 +13,9 @@ __pycache__/
 *.pyc
 .venv/
 .DS_Store
+.pytest_cache/
+*.swp
+*.swo
 # 에디터
 .vscode/
 .idea/

@@ -8,7 +8,7 @@
 
 변환 우선순위: **HWPX 원본 > HWP → HWPX 변환 > PDF**
 
-실제 수행 결과 보고서는 [`docs/hwp-hwpx-conversion-report-2026-04-20.md`](../docs/hwp-hwpx-conversion-report-2026-04-20.md)에 정리했다.
+실제 수행 요약은 `docs/phase1-report.md`에 공개용 기준으로 반영했다.
 
 ---
 

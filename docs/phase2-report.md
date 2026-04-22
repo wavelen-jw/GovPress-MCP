@@ -2,23 +2,17 @@
 
 완료 일시: `2026-04-22`
 
-## Summary
+## 요약
 
-Phase 2의 T1~T4는 완료되었습니다.
-
-- T1: Warm Markdown corpus를 Hot index로 변환
-- T2: Qdrant + TEI + Redis 스택 구성
-- T3: MCP 8개 도구 구현
-- T4: Cloudflare Tunnel을 통한 외부 공개
+Phase 2는 Warm Markdown corpus를 Hot 검색 레이어와 공개 MCP 서버로 연결하는 단계였다.  
+결과적으로 `mcp.govpress.cloud`에서 읽기 전용 MCP 7개 도구를 공개 운영할 수 있는 상태가 되었다.
 
 ## T1 — derive_hot
-
-결과:
 
 - corpus md files: `130,012`
 - indexed docs: `129,934`
 - unindexed docs: `78`
-- qdrant points: `454,125`
+- qdrant chunks: `454,125`
 - briefing_fts rows: `454,125`
 - tokenizer: `unicode61 trigram`
 
@@ -32,8 +26,8 @@ Phase 2의 T1~T4는 완료되었습니다.
 
 관련 문서:
 
-- [`derive-hot-report.md`](derive-hot-report.md)
-- [`derive-hot-benchmark.md`](derive-hot-benchmark.md)
+- [derive-hot-report.md](derive-hot-report.md)
+- [derive-hot-benchmark.md](derive-hot-benchmark.md)
 
 ## T2 — Docker Compose Stack
 
@@ -50,15 +44,9 @@ Phase 2의 T1~T4는 완료되었습니다.
 - 네트워크: `govpress_mcp_net`
 - Redis: `maxmemory 1gb`, `allkeys-lru`
 
-확인:
+## T3 — MCP Tools
 
-- Qdrant health: `/healthz`
-- TEI health: `/health`
-- Redis ping: `PONG`
-
-## T3 — MCP 8 Tools
-
-구현 완료 도구:
+공개 도구:
 
 1. `get_stats`
 2. `get_briefing`
@@ -67,36 +55,38 @@ Phase 2의 T1~T4는 완료되었습니다.
 5. `search_briefing`
 6. `cross_check_ministries`
 7. `trace_policy`
-8. `compare_versions`
+
+비공개/보류:
+
+- `compare_versions`
+  - `checksums_history` 누적 전까지 공개 액션 목록에서 숨김
 
 특이사항:
 
-- `compare_versions`는 `experimental` 스텁으로 제공
-- 모든 도구는 응답 크기 `50 KB` 미만 기준으로 테스트
-- `tests/test_mcp_tools.py` 8개 통과
+- 모든 공개 도구는 읽기 전용으로 메타데이터 설정
+- 응답 크기 `50 KB` 미만 기준으로 테스트
+- `tests/test_mcp_tools.py` 통과
 
 ## T4 — Cloudflare Tunnel
-
-결과:
 
 - hostname: `mcp.govpress.cloud`
 - origin: `http://127.0.0.1:8001`
 - path: `/mcp`
 - tunnel status: `healthy`
-- external tools/list: `8`
+- external tools/list: `7`
 
 systemd:
 
 - `govpress-mcp-server.service`
 - `govpress-mcp-cloudflared.service`
 
-두 서비스 모두 `enabled`, `active`.
+두 서비스 모두 `enabled`, `active`
 
 관련 문서:
 
-- [`t4-cloudflare-report.md`](t4-cloudflare-report.md)
+- [t4-cloudflare-report.md](t4-cloudflare-report.md)
 
-## Final Index State
+## 최종 색인 상태
 
 - indexed docs: `129,934`
 - qdrant chunks: `454,125`
@@ -104,9 +94,12 @@ systemd:
 
 ## 미완료·보류
 
-- task #32: HWPX `249`건 재시도 보류
-- `compare_versions`: `checksums_history` 누적 후 활성화
-- `derive_hot --incremental`: daily service 연동 필요
+- task #32: HWPX `249`건 재시도 대기
+  - `govpress-converter` 파서 개선 릴리즈 후 재실행
+- `compare_versions`
+  - `checksums_history` 누적 후 활성화
+- `derive_hot --incremental`
+  - daily service 연동 필요
 
 ## Phase 3 후보
 
