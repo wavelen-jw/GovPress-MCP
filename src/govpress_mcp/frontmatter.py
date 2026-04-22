@@ -53,10 +53,17 @@ def parse(document: str) -> tuple[dict[str, str], str]:
     header_block = parts[0][4:]
     body = parts[1].lstrip("\n")
     parsed: dict[str, str] = {}
+    current_key: str | None = None
     for line in header_block.splitlines():
         if not line.strip():
             continue
+        if line.startswith((" ", "\t")):
+            if current_key is None:
+                raise ValueError("frontmatter continuation line without key")
+            parsed[current_key] = f"{parsed[current_key]} {line.strip()}"
+            continue
         key, value = line.split(": ", 1)
+        current_key = key
         parsed[key] = _deserialize_scalar(value)
     return parsed, body
 

@@ -7,11 +7,17 @@ name = "govpress-mcp"
 version = "0.1.0"
 description = "Govpress MCP bulk ingestion pipeline"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "httpx",
+    "mcp",
+]
+
+[project.scripts]
+govpress-mcp = "govpress_mcp.server:main_stdio"
+govpress-mcp-sse = "govpress_mcp.server:main_sse"
 
 [tool.setuptools.package-dir]
 "" = "src"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-

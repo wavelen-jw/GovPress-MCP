@@ -1,0 +1,19 @@
+[Unit]
+Description=GovPress MCP Cloudflare Tunnel
+Wants=network-online.target govpress-mcp-server.service
+After=network-online.target govpress-mcp-server.service
+
+[Service]
+Type=simple
+Environment=HOME=%h
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+EnvironmentFile=%h/.config/govpress-mcp/cloudflared.env
+ExecStartPre=/bin/bash -lc 'test -n "$CLOUDFLARE_TUNNEL_TOKEN"'
+ExecStart=/bin/bash -lc 'exec cloudflared tunnel --config /dev/null --no-autoupdate --protocol http2 --url http://127.0.0.1:8001 run --token "$CLOUDFLARE_TUNNEL_TOKEN"'
+Restart=always
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=10
+
+[Install]
+WantedBy=default.target

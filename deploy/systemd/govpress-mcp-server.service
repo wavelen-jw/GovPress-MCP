@@ -1,0 +1,17 @@
+[Unit]
+Description=GovPress MCP server
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/wavel/projects/govpress-mcp
+Environment=PYTHONPATH=src
+EnvironmentFile=%h/.config/govpress-mcp/server.env
+ExecStart=/home/wavel/projects/govpress-mcp/.venv/bin/python -m govpress_mcp.server
+Restart=always
+RestartSec=5
+KillMode=control-group
+
+[Install]
+WantedBy=default.target

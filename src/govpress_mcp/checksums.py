@@ -72,6 +72,7 @@ class Store:
         govpress_version: str | None = None,
         govpress_commit: str | None = None,
         source_format: str | None = None,
+        commit: bool = True,
     ) -> None:
         with self._lock:
             self._conn.execute(
@@ -99,7 +100,17 @@ class Store:
                     source_format,
                 ),
             )
+            if commit:
+                self._conn.commit()
+
+    def commit(self) -> None:
+        with self._lock:
             self._conn.commit()
+
+    def close(self) -> None:
+        with self._lock:
+            self._conn.commit()
+            self._conn.close()
 
 
 def open_store(path: Path) -> Store:
