@@ -330,3 +330,68 @@ EMERGENCY STOP: <조건>
 - 전체 아키텍처: `C:\Users\wavel\OneDrive\문서\Claude\Projects\보도자료 PDF-MD 변환\데이터-저장-아키텍처.md`
 - MCP 도구 명세: 같은 폴더 `Govpress-MCP-구현명세.md`
 - 버전 비교 실험: `silent-overwrite-검증실험.md`
+
+---
+
+## 8. Phase 2 — 색인·MCP 서버 (착수 기준: Phase 1 M3 완료 후)
+
+Phase 1(크롤·변환·저장) 완료 후 Qdrant/FTS5 색인과 MCP 8개 도구 구현을 진행한다.
+각 태스크(T1~T3)는 사람 승인 없이 자동 진행 **금지**. 완료 보고 후 대기.
+
+### 8.1 Phase 2 진행 상태 (2026-04-22 기준)
+
+| 태스크 | 내용 | 상태 |
+|---|---|---|
+| T1 | FTS5 가상 테이블 + SQLite `briefings` 스키마 + `ministry_alias` 초기 데이터 | ✅ 완료 |
+| T2 | Qdrant 컬렉션 생성 + BGE-M3/TEI 배치 임베딩 파이프라인 | ✅ 완료 |
+| T3 | MCP 8개 도구 구현 (Python `mcp` SDK) | 🔜 착수 예정 |
+
+T3 세부 프롬프트: `codex-handoff/prompts/mcp_tools_phase2.md`
+
+### 8.2 Phase 2 인프라 불변 조건
+
+#### Docker Compose 서비스
+
+```yaml
+qdrant:
+  image: qdrant/qdrant:v1.17.1          # 버전 고정 — migration 리스크 방지
+  ports: ["127.0.0.1:6333:6333"]
+  volumes: ["./data/qdrant:/qdrant/storage"]
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
+    # /healthz 사용. /health는 Qdrant 1.7.0+ 에서 제거됨 (v1.17.1 기준)
+    interval: 30s
+    timeout: 5s
+    retries: 3
+
+embed:                                   # BGE-M3 임베딩 (TEI)
+  image: ghcr.io/huggingface/text-embeddings-inference:turing-1.5
+  ports: ["127.0.0.1:18080:80"]
+  # 호스트 18080 → 컨테이너 80. 8080은 타 서비스 충돌 방지
+  environment:
+    MODEL_ID: BAAI/bge-m3
+  deploy:
+    resources:
+      reservations:
+        devices: [{driver: nvidia, count: 1, capabilities: [gpu]}]
+```
+
+**포트 주의사항 (재협상 금지)**:
+- Qdrant 헬스 체크: `/healthz` (`/health`는 Qdrant 1.7.0+에서 제거됨. v1.17.1 기준)
+- TEI 외부 포트: `18080` (`8080`은 다른 서비스와 충돌 가능성)
+- `EMBED_URL` 환경변수: `http://embed:80` (컨테이너 내부 통신은 포트 80 그대로)
+
+#### 환경 변수 (`.env` 추가 항목)
+
+```
+QDRANT_URL=http://qdrant:6333
+EMBED_URL=http://embed:80
+REDIS_URL=redis://redis:6379
+MCP_PORT=8000
+```
+
+### 8.3 T3 착수 전 전제조건
+
+- T1: `briefings`, `briefing_ministries`, `ministry_alias`, `statistics` 테이블 DDL + FTS5 가상 테이블 `briefings_fts` 존재 확인
+- T2: Qdrant 컬렉션 `briefing_chunks` 존재 확인 + 30만 건 임베딩 완료 확인
+- `docker compose ps`로 qdrant/embed/redis 모두 `healthy` 상태 확인
