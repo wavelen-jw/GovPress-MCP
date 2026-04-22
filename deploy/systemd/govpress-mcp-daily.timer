@@ -1,0 +1,10 @@
+[Unit]
+Description=Run GovPress MCP daily incremental ingest at 03:00 KST
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+Unit=govpress-mcp-daily.service
+
+[Install]
+WantedBy=timers.target

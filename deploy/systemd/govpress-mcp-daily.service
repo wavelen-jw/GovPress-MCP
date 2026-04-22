@@ -1,0 +1,13 @@
+[Unit]
+Description=GovPress MCP daily incremental ingest
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/wavel/projects/govpress-mcp
+Environment=TZ=Asia/Seoul
+ExecStart=/home/wavel/projects/govpress-mcp/scripts/run_daily_increment.sh
+
+[Install]
+WantedBy=default.target

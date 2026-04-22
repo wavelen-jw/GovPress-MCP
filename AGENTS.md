@@ -17,8 +17,8 @@
 ### 1.1 인프라
 
 - 실행 환경: **WSL Ubuntu 24.04** (Windows 호스트 서버W). Docker Desktop 있음.
-- 작업 디렉토리 루트: `/home/USER/govpress-mcp/` (`USER`는 실제 사용자명으로 치환). **절대 `/mnt/c/...` 금지** — Windows 드라이브 I/O 성능 문제.
-- 데이터 디렉토리: `/home/USER/govpress-mcp/data/{raw,md,fetch-log}`
+- 작업 디렉토리 루트: `/home/wavel/projects/govpress-mcp/`. **절대 `/mnt/c/...` 금지** — Windows 드라이브 I/O 성능 문제.
+- 데이터 디렉토리: `/home/wavel/projects/govpress-mcp/data/{raw,md,fetch-log}`
 - Python ≥ 3.10 (변환 엔진 요구사항)
 - PDF 변환이 필요한 경우에만 Java 11+ (Phase A는 HWPX만 다루므로 불필요)
 
@@ -29,28 +29,45 @@
 HWP(구버전)는 `govpress-converter`로 직접 변환 불가하지만, 한/글 COM 자동화로 HWPX로
 변환하면 품질 손실 없이 처리 가능하다. PDF보다 변환 품질이 높으므로 PDF 이전 단계에서 처리한다.
 
-각 item에 대해 아래 순서로 처리한다:
+**단일 패스 선택 규칙 (2026-04-19 확정):**
 
-1. **`primary_hwpx` 정상** (`is_zip_container=True`, HTML 에러 페이지·0 byte 아님) → HWPX 트랙 (M3)
-2. **`is_zip_container=False` (HWP 구버전)** → HWP 파일 다운로드 → `data/raw/{yyyy}/{mm}/{news_item_id}.hwp` 저장 → `hwp-queue.jsonl` 큐잉. M3.5(서버H COM 변환) + M4(재처리)에서 처리.
-3. **`primary_hwpx` None 또는 비정상** + `primary_pdf` 있음 → `pdf-queue.jsonl` 큐잉. M5에서 처리.
+각 item의 첨부 메타를 한 번만 훑어 최우선 포맷 1개를 선택, 다운로드도 1회만 한다.
+
+```python
+def select_best_attachment(item) -> (format, attachment, reason):
+    # 1순위: primary_hwpx 정상 (is_zip_container=True, HTML 오류 페이지·0 byte 아님)
+    # 2순위: .hwp 첨부 존재 (primary_hwpx 없거나 비정상일 때 item.attachments 순회)
+    # 3순위: primary_pdf 존재
+    # 없음: no_attachments / odt_only
+```
+
+선택 결과별 처리:
+
+1. **HWPX 선택** → `data/raw/{yyyy}/{mm}/{id}.hwpx` 저장 → `convert_hwpx()` → MD 생성 (`source_format: hwpx`)
+2. **HWP 선택** (`hwp_legacy` 또는 `no_primary_hwpx_hwp_attachment`) → `data/raw/{yyyy}/{mm}/{id}.hwp` 저장 → `hwp-queue.jsonl` 큐잉. MD 생성 없음. M3.5(서버H COM) + M4(재처리)에서 처리.
    ```json
-   {"news_item_id": "...", "approve_date": "YYYY-MM-DD", "reason": "hwpx_html_error_page" | "hwpx_empty_payload" | "no_primary_hwpx"}
+   {"news_item_id": "...", "approve_date": "YYYY-MM-DD", "reason": "hwp_legacy" | "no_primary_hwpx_hwp_attachment", "hwp_path": "data/raw/yyyy/mm/ID.hwp"}
    ```
-4. **어떤 첨부도 없거나 ODT만 있음** → `odt_only` / `no_attachments` 사유로 skip + 로그 한 줄.
+3. **PDF 선택** → `pdf-queue.jsonl` 큐잉. M5에서 처리. (HWPX/HWP 둘 다 없는 경우만 도달)
+   ```json
+   {"news_item_id": "...", "approve_date": "YYYY-MM-DD", "reason": "no_hwpx_no_hwp"}
+   ```
+4. **없음** → `no_attachments` / `odt_only` 사유로 skip + 로그 한 줄.
 
-**비정상 HWPX 다운로드 판정:**
-- `본문[:15].lstrip().startswith(b"<!DOCTYPE")` 또는 `b"<html"` → `hwpx_html_error_page`
-- `len(본문) == 0` → `hwpx_empty_payload`
-- 두 경우 모두 단순 재시도로 회복 불가. pdf-queue에 기록.
+**비정상 HWPX 판정 (HWP 2순위로 강등):**
+- `본문[:15].lstrip().startswith(b"<!DOCTYPE")` 또는 `b"<html"` → `hwpx_html_error_page` → HWP 2순위로 재선택
+- `len(본문) == 0` → `hwpx_empty_payload` → HWP 2순위로 재선택
+
+**구현 주의:** `no_primary_hwpx_hwp_attachment` 건의 HWP 다운로드는 `client.download_item_hwpx()`가 아닌 `item.attachments`를 직접 순회해서 `.hwp` 확장자 첨부를 선택·다운로드해야 한다.
 
 **각 마일스톤 담당 범위:**
 | 단계 | 처리 포맷 | 실행 환경 |
 |---|---|---|
-| M3 | HWPX 수집·변환 + HWP 수집·큐잉 | 서버W WSL |
-| M3.5 | HWP → HWPX 변환 | **서버H Windows** (한/글 COM) |
-| M4 | 변환된 HWPX 재처리 (hwp-queue 소진) | 서버W WSL |
-| M5 | PDF 백필 | 서버W WSL |
+| M3 | HWPX 수집·변환 (완료) | 서버W WSL |
+| M3.5 단일 패스 | HWPX(skip) / HWP 수집·큐잉 / PDF 큐잉 — 5년 재스캔 | 서버W WSL |
+| M3.5 COM 변환 | HWP → HWPX | **서버H Windows** (한/글 COM) |
+| M4 | 변환된 HWPX 재처리 (hwp-queue 전량 소진) | 서버W WSL |
+| M5 | PDF 백필 (HWPX/HWP 모두 없는 잔여분만) | 서버W WSL |
 
 ### 1.3 Govpress 웹서비스 호출 금지
 
@@ -74,7 +91,7 @@ HWP(구버전)는 `govpress-converter`로 직접 변환 불가하지만, 한/글
 ### 1.6 저장 경로 규약
 
 ```
-/home/USER/govpress-mcp/data/
+/home/wavel/projects/govpress-mcp/data/
 ├── raw/{yyyy}/{mm}/{news_item_id}.hwpx      # 원본 HWPX (M3) 또는 COM 변환 결과 (M3.5)
 ├── raw/{yyyy}/{mm}/{news_item_id}.hwp       # HWP 구버전 원본 (M3 수집, M3.5 변환 전까지 보존)
 ├── raw/{yyyy}/{mm}/{news_item_id}.pdf       # 원본 PDF (M5, 동일 경로 구조)
@@ -203,6 +220,8 @@ govpress-mcp/                             # Govpress MCP 프로젝트 루트
 ├── AGENTS.md                             # 이 파일
 ├── README.md
 ├── pyproject.toml
+├── docker-compose.yml                    # Phase 2: Qdrant + TEI + Redis + MCP 서버
+├── Dockerfile                            # Phase 2: MCP 서버 이미지
 ├── .env.example                          # GOVPRESS_POLICY_BRIEFING_SERVICE_KEY=
 ├── .gitignore                            # .env, data/, __pycache__/, vendor/gov-md-converter/.venv
 ├── vendor/
@@ -213,22 +232,34 @@ govpress-mcp/                             # Govpress MCP 프로젝트 루트
 │       ├── vendored/
 │       │   ├── __init__.py
 │       │   └── policy_briefing.py        # 복사본 (출처 SHA 주석)
-│       ├── bulk_ingest.py                # 메인 루프
+│       ├── bulk_ingest.py                # 크롤·변환·저장 메인 루프 (Phase 1)
+│       ├── reconvert.py                  # Phase 2: conversion_failed 재처리
+│       ├── derive_hot.py                 # Phase 2: MD → Qdrant + FTS5 색인
+│       ├── mcp_server.py                 # Phase 2: MCP 8개 도구 FastAPI 서버
 │       ├── entity_classify.py            # department → entity_type
 │       ├── frontmatter.py                # 생성·파싱
 │       ├── paths.py                      # 저장 경로 규약
 │       ├── ratelimit.py                  # 동시성·backoff
 │       └── checksums.py                  # sha256 비교, SQLite 추적
 ├── scripts/
-│   └── run_bulk_ingest.sh                # env 로드 + python -m govpress_mcp.bulk_ingest ...
+│   ├── run_bulk_ingest.sh                # env 로드 + python -m govpress_mcp.bulk_ingest ...
+│   └── bulk_hwp_to_hwpx.py              # 서버H COM 변환 스크립트 (Windows 전용)
 ├── tests/
 │   ├── test_entity_classify.py
 │   ├── test_frontmatter.py
-│   └── test_idempotency.py               # 같은 sha256이면 skip 검증
-└── data/                                 # gitignore — 실제 원본·MD 저장
-    ├── raw/
-    ├── md/
-    └── fetch-log/
+│   ├── test_idempotency.py               # 같은 sha256이면 skip 검증
+│   ├── test_reconvert.py                 # Phase 2
+│   └── test_mcp_tools.py                 # Phase 2
+└── data/                                 # gitignore — 실제 원본·MD·색인 저장
+    ├── raw/                              # HWPX·HWP·PDF 원본
+    ├── md/                               # 변환 결과 MD
+    ├── fetch-log/
+    │   ├── checksums.db                  # 문서별 sha256·버전·포맷 추적
+    │   ├── failed.jsonl
+    │   ├── hwp-queue.jsonl
+    │   ├── pdf-queue.jsonl
+    │   └── daily-YYYYMMDD.jsonl          # 일일 증분 로그
+    └── govpress.db                       # Phase 2: SQLite FTS5 + 청크 메타
 ```
 
 ---
@@ -277,6 +308,7 @@ M1 완료. 10건 스모크 성공. 승인 대기.
   - `conversion_failed` (HWPX 변환 실패) <1%
 - [ ] 중위 처리 시간 (다운로드+변환) < 5초/건
 - [ ] 429/503 재시도 성공률 ≥99%
+- [ ] 디스크 사용량 증가치가 이전 실행 대비 ±60% 이내 (절대 예측치 대비가 아님; M2 실측 raw +3.11GB를 기준점으로 삼음)
 - [ ] `docs/rehearsal-report.md`에 위 수치 전부 기록
 - [ ] 다운로드 실패 유형별 건수 집계: `hwpx_html_error_page` / `hwpx_empty_payload` / `connection_error` / 기타
 
@@ -287,6 +319,7 @@ M2 완료. 1개월 리허설 성공. 5년 백필 승인 대기.
 - HWPX 성공률: XX.X%, 중위 처리시간: X.Xs
 - skip 분포: hwp_legacy X%, pdf_queue Y%, odt_only/기타 Z%, conversion_failed W%
 - 다운로드 실패: hwpx_html_error_page N건, hwpx_empty_payload M건
+- 디스크 증가: raw +X.XGB, md +X.XGB
 사람이 rehearsal-report.md를 확인하고 "M3 진행"을 지시해 주세요.
 ```
 
@@ -318,13 +351,34 @@ M2 어느 한 조건이라도 실패하면 자동 M3 착수 금지. 해결책을
 
 M3 완료 = HWPX 백필 + 큐 구축 완료. Codex는 멈추고 사람에게 반환.
 
-### 4.3.5 마일스톤 M3.5 — HWP → HWPX 변환 (서버H, 사람이 직접 실행)
+### 4.3.5 마일스톤 M3.5 — 단일 패스 수집 + COM 변환 (2026-04-19 재설계)
 
-**Codex가 수행하는 단계가 아님. `scripts/README-hwp-to-hwpx.md` 절차서 참고.**
+**M3.5는 두 단계로 구성된다.**
 
-서버H(한/글 설치된 Windows)에서 `scripts/bulk_hwp_to_hwpx.py` 실행:
-1. 서버W `hwp-queue.jsonl` 건수 확인
-2. 서버W → 서버H: HWP 파일 복사 (rsync/scp/UNC)
+#### 단계 1 — 단일 패스 수집 (서버W, Codex 실행)
+
+M3에서 HWPX로 처리된 91,086건은 checksums.db로 skip. 나머지 item에 대해 `select_best_attachment()`로 최우선 포맷을 선택해 단 1회 다운로드.
+
+```bash
+# 기존 M3.5 HWP 수집 중단 후 부분 상태 정리 먼저
+# 이후 새 단일 패스 실행
+python -m govpress_mcp.bulk_ingest \
+  --date-range 2021-04-18..2026-04-18 \
+  --data-root /home/wavel/projects/govpress-mcp/data \
+  --log-json data/fetch-log/single-pass.jsonl
+```
+
+완료 후 보고:
+- hwp-queue.jsonl 총 건수 (hwp_legacy + no_primary_hwpx_hwp_attachment 합산)
+- pdf-queue.jsonl 최종 건수 (HWPX/HWP 모두 없는 건만)
+- 디스크 증가분
+
+#### 단계 2 — HWP → HWPX COM 변환 (서버H, 사람이 직접 실행)
+
+`scripts/README-hwp-to-hwpx.md` 절차서 참고.
+
+1. 서버W `hwp-queue.jsonl` 건수 최종 확인
+2. 서버W → 서버H: HWP 파일 전송 (rsync/scp/UNC)
 3. 서버H: `python bulk_hwp_to_hwpx.py --input <hwp폴더> --output <hwpx폴더>`
 4. 서버H → 서버W: HWPX 파일 업로드
 5. M4 착수 지시
@@ -338,7 +392,7 @@ M3 완료 = HWPX 백필 + 큐 구축 완료. Codex는 멈추고 사람에게 반
 ```bash
 python -m govpress_mcp.bulk_ingest \
   --from-hwp-queue data/fetch-log/hwp-queue.jsonl \
-  --data-root /home/$USER/govpress-mcp/data
+  --data-root /home/wavel/projects/govpress-mcp/data
 ```
 
 - `.hwpx` 존재 → `convert_hwpx()` → MD (`source_format: hwpx`)
@@ -348,7 +402,9 @@ python -m govpress_mcp.bulk_ingest \
 
 ### 4.5 마일스톤 M5 — PDF 백필 (서버W, 구 M4)
 
-`pdf-queue.jsonl` 소진. `scripts/README-hwp-to-hwpx.md`의 M5 섹션 및 `prompts/bulk_ingest_phase1_m4.md` 참고 (파일명은 m4이나 실제 단계는 M5).
+`pdf-queue.jsonl` 중 **M3.5 패스 A에서 HWP 구조 실패한 잔여분**만 처리. 즉 `no_primary_hwpx` 중 실제로 HWP도 없는 건 + `hwpx_html_error_page` + `hwpx_empty_payload` 건.
+
+`prompts/bulk_ingest_phase1_m4.md` 참고 (파일명은 m4이나 실제 단계는 M5).
 
 ### 4.6 체크포인트 의무 정리
 
@@ -368,6 +424,7 @@ python -m govpress_mcp.bulk_ingest \
 - `api2.govpress.cloud`로 HTTP 시도 감지 (`FORBIDDEN_HOSTS` 훅 로그)
 - 서비스키(`GOVPRESS_POLICY_BRIEFING_SERVICE_KEY` 실제 값)가 stdout·로그 파일·커밋 diff·frontmatter 어디든 출력됨
 - 429 또는 503이 한 시간 이상 지속 (단일 키 과용 추정)
+- 디스크 사용량 600GB 초과 (raw 250GB 실측 기준, 색인 레이어 추가 고려)
 - `is_zip_container=True`인데 `convert_hwpx`가 실패하는 비율이 5% 초과 (변환 엔진 회귀)
 - `/mnt/c/...` 경로에 데이터가 기록되려는 시도
 
@@ -389,9 +446,16 @@ EMERGENCY STOP: <조건>
 - `api2.govpress.cloud`에 요청
 - `/mnt/c/...` Windows 경로에 데이터 저장
 - `PolicyBriefingCache.warm_item()` 호출 (저장 레이아웃이 충돌)
-- HWP(구버전 바이너리)를 강제로 변환하려 시도 (hwp_legacy는 skip)
-- M3에서 PDF 변환 시도 (PDF는 M4 트랙. M3는 pdf-queue.jsonl 기록만 하고 skip)
+- HWP(구버전 바이너리)를 govpress-converter로 직접 변환 시도 (HWP는 hwp-queue 큐잉만, 변환은 M3.5 서버H COM)
+- PDF를 M3.5 단일 패스에서 변환 시도 (PDF는 pdf-queue 큐잉만, 변환은 M5)
+- select_best_attachment() 없이 HWPX만 시도하고 나머지를 pdf-queue에 일괄 투기
+- `no_primary_hwpx_hwp_attachment` 건을 `client.download_item_hwpx()`로 다운로드 시도 (item.attachments 직접 순회 필요)
 - 의존성을 불필요하게 늘리기 (pure Python + 표준 라이브러리 + `govpress-converter` + 필요 시 `pydantic`/`tenacity` 정도면 충분)
+- **Phase 2 추가 금지**:
+  - Qdrant 볼륨·SQLite DB를 `/mnt/c/...` 경로에 마운트 (반드시 `/home/wavel/...` WSL 네이티브)
+  - derive_hot.py에서 임베딩을 OpenAI API로 전송 (BGE-M3 TEI 셀프호스팅만 사용)
+  - MCP 도구 응답에 라이선스 footer 삽입 (frontmatter `source_url`로 대체, §8.3.5 참고)
+  - reconvert.py 전량 실행 — converter XML 파서 개선 전에는 실행 금지 (현재 249건 전량 실패 확인됨)
 
 ---
 
@@ -412,3 +476,186 @@ EMERGENCY STOP: <조건>
 - 전체 아키텍처: `C:\Users\wavel\OneDrive\문서\Claude\Projects\보도자료 PDF-MD 변환\데이터-저장-아키텍처.md`
 - MCP 도구 명세: 같은 폴더 `Govpress-MCP-구현명세.md`
 - 버전 비교 실험: `silent-overwrite-검증실험.md`
+- Phase 1 절차서: `보도자료 PDF-MD 변환\Phase1-실행-절차서.md`
+- **Phase 2 절차서**: `보도자료 PDF-MD 변환\Phase2-실행-절차서.md` ← Phase 2 작업 시 필독
+
+---
+
+## 8. Phase 2 — 색인·서빙 레이어 (2026-04-21 착수)
+
+### 8.1 Phase 1 최종 현황 (참고)
+
+| 항목 | 수치 |
+|---|---|
+| 총 MD | 129,901건 (커밋 aca5c55) |
+| source_format=hwpx | 128,884 |
+| source_format=hwp | 53 |
+| source_format=pdf | 1,025 |
+| raw 저장량 | 250.30 GiB |
+| MD 저장량 | 1.05 GiB |
+| 일일 증분 timer | govpress-mcp-daily.timer, 매일 03:00 KST |
+
+영구 skip: hwp_distribution_only 52 / html_error_page 163 / empty_payload 12 = 227건
+
+### 8.2 task #32 — reconvert.py 현황 (전량 실행 보류)
+
+구현 완료. dry-run 10건 전량 실패. 전량 실행은 govpress-converter XML 파서 개선 후로 보류.
+
+**실패 분류**:
+
+| 유형 | 건수 | 조치 |
+|---|---|---|
+| hwpx_invalid_token | 223 | converter 파서 개선 후 재시도 |
+| hwpx_syntax_error | 16 | converter 파서 개선 후 재시도 |
+| hwpx_invalid_file (비zip 6 + central_dir손상 1) | 7 | 비zip 분기 처리 필요 |
+| hwpx_unpack_error / hwpx_other | 3 | 조사 필요 |
+| PDF 10건 (HTML·HWP위장·DOCUMENTSAFER·깨진PDF) | 10 | 소스 자체 불량, 영구 skip |
+
+비zip 6건 목록: `data/fetch-log/reconvert-hwpx-notzip-6.txt`
+
+**재실행 조건**: converter HWPX XML 파서 개선 릴리즈 후 `--source-format hwpx` 로만 재실행. PDF 10건 제외.
+
+### 8.3 T1 — derive_hot.py 스펙
+
+#### 8.3.1 목적
+
+`data/md/` 전량을 청크로 분할 → BGE-M3 임베딩 → Qdrant upsert + SQLite FTS5 색인 구축.
+**불변 원칙**: Hot은 Warm(MD)으로부터 언제든 결정론적으로 재생성 가능해야 한다.
+
+#### 8.3.2 청킹 규칙
+
+- 단위: 문단 기반, 최대 512 토큰
+- overlap: 64 토큰
+- 청크 ID: `{news_item_id}_{chunk_index:04d}`
+- payload 보존: `news_item_id`, `approve_date`, `department`, `entity_type`, `chunk_index`, `chunk_total`
+
+#### 8.3.3 Qdrant 컬렉션
+
+```python
+collection_name = "briefing_chunks"
+# 차원: 1024 (BGE-M3)
+# 거리: Cosine
+# HNSW: m=16, ef_construct=200
+# payload 인덱스: news_item_id, approve_date, entity_type, department
+```
+
+#### 8.3.4 SQLite FTS5
+
+```sql
+-- data/govpress.db
+CREATE VIRTUAL TABLE IF NOT EXISTS briefing_fts USING fts5(
+    news_item_id UNINDEXED,
+    chunk_index  UNINDEXED,
+    body,
+    tokenize='unicode61 trigram'
+);
+```
+
+mecab-ko 도입 여부: 100건 샘플 recall 실험 후 결정 (차이 ≥5%p 이면 도입).
+
+#### 8.3.5 임베딩 — TEI 엔드포인트
+
+```
+http://localhost:8080  (TEI 컨테이너, BGE-M3, RTX 3080)
+배치 크기: 64
+```
+
+OpenAI 등 외부 임베딩 API 사용 금지.
+
+#### 8.3.6 CLI
+
+```bash
+# 전량 색인 (초기 1회)
+python -m govpress_mcp.derive_hot \
+  --data-root /home/wavel/projects/govpress-mcp/data \
+  --qdrant-url http://localhost:6333 \
+  --tei-url http://localhost:8080 \
+  --db /home/wavel/projects/govpress-mcp/data/govpress.db \
+  --checkpoint 1000
+
+# 일일 증분 (govpress-mcp-daily.service 에서 bulk_ingest 직후 호출)
+python -m govpress_mcp.derive_hot --incremental \
+  --data-root /home/wavel/projects/govpress-mcp/data \
+  --qdrant-url http://localhost:6333 \
+  --tei-url http://localhost:8080 \
+  --db /home/wavel/projects/govpress-mcp/data/govpress.db
+```
+
+idempotent 보장: chunk_id 기준 upsert (재실행 무해).
+
+체크포인트 파일: `data/fetch-log/derive-hot-checkpoint.json` (마지막 처리 MD 경로 + 타임스탬프).
+
+완료 후 `docs/derive-hot-report.md` 작성:
+- 처리 MD 건수, 총 청크 수, 임베딩 소요 시간
+- Qdrant 컬렉션 벡터 수
+- FTS5 row 수
+- 실패 건 (청킹 오류 등)
+
+### 8.4 T2 — Docker-compose 스택
+
+```yaml
+# 볼륨은 반드시 /home/wavel/... WSL 네이티브 경로
+
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    volumes:
+      - /home/wavel/projects/govpress-mcp/data/qdrant:/qdrant/storage
+    ports: ["6333:6333"]
+
+  tei:
+    image: ghcr.io/huggingface/text-embeddings-inference:latest
+    command: --model-id BAAI/bge-m3
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    ports: ["8080:80"]
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 1gb --maxmemory-policy allkeys-lru
+    ports: ["6379:6379"]
+
+  mcp-server:
+    build: .
+    env_file: .env
+    volumes:
+      - /home/wavel/projects/govpress-mcp/data:/app/data:ro
+    ports: ["8000:8000"]
+    depends_on: [qdrant, tei, redis]
+
+networks:
+  default:
+    name: govpress_mcp_net
+```
+
+### 8.5 T3 — MCP 8개 도구
+
+| # | 도구명 | 설명 | 응답 상한 |
+|---|---|---|---|
+| 1 | `search_briefing` | 의미 검색 (Qdrant + BGE-M3) | 상위 50건 요약 |
+| 2 | `get_briefing` | 단건 전문 조회 (full MD) | 평균 15KB |
+| 3 | `list_briefings` | 날짜·부처·entity_type 필터 목록 | 100건 |
+| 4 | `fts_search` | 키워드 전문 검색 (FTS5) | 상위 50건 |
+| 5 | `compare_versions` | 동일 문서 개정 전후 비교 ⚠️ **실험** | 시간축 10건 |
+| 6 | `cross_check_ministries` | 동일 주제 부처별 입장 비교 | 부처 5개 |
+| 7 | `trace_policy` | 정책 흐름 시계열 추적 | 노드 50개 |
+| 8 | `get_stats` | 수집 현황 통계 | 단일 JSON |
+
+평균 응답 < 50KB 목표. 모든 응답에 `source_url` 포함 (korea.kr 원문 링크). 응답 footer에 라이선스 문구 삽입 금지.
+
+`compare_versions` ⚠️: silent-overwrite 실험 관찰 중. 6개월 후 L2/L3 변경 빈도 기준으로 존속 판단.
+
+### 8.6 Phase 2 체크포인트
+
+| 지점 | 행동 주체 | 완료 기준 |
+|---|---|---|
+| T1 완료 | Codex 멈춤 | derive-hot-report.md 작성 → 사람 검토 |
+| T2 완료 | Codex 멈춤 | 스택 7일 안정 → 사람 확인 |
+| T3 완료 | Codex 멈춤 | pytest 통과 + 응답 <50KB + 사람 검토 |
+| T4 완료 | Codex 멈춤 | mcp.govpress.cloud 스모크 테스트 통과 |
+| task #32 재실행 | converter 파서 개선 후 | 별도 지시 대기 |
