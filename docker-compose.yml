@@ -1,6 +1,8 @@
 services:
   qdrant:
     image: qdrant/qdrant:latest
+    environment:
+      QDRANT__TELEMETRY_DISABLED: "true"
     volumes:
       - /home/wavel/projects/govpress-mcp/data/qdrant:/qdrant/storage
     ports:
