@@ -5,9 +5,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import threading
 import time
 import urllib.request
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -19,12 +21,16 @@ from govpress_mcp.vendored.policy_briefing import REQUEST_USER_AGENT
 
 
 DOWNLOAD_ACTIONS = {"download_hwpx", "download_pdf", "download_hwp"}
+RESUME_STATUSES = {"success", "hwp_downloaded", "skip_sha", "dry_run"}
 SOURCE_FORMAT_BY_ACTION = {
     "api_text_only": "api_text",
     "download_hwpx": "hwpx",
     "download_pdf": "pdf",
     "download_hwp": "hwp",
 }
+_HWP_QUEUE_LOCK = threading.Lock()
+_LOG_LOCK = threading.Lock()
+_HWP_QUEUE_IDS_BY_PATH: dict[Path, set[str]] = {}
 
 
 def parse_date_range(value: str | None) -> tuple[str | None, str | None]:
@@ -241,9 +247,10 @@ def ratelimit_sync_sleep() -> None:
 
 
 def append_jsonl(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8", newline="") as handle:
-        handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+    with _LOG_LOCK:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8", newline="") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
 
 def append_hwp_queue_once(
@@ -254,23 +261,71 @@ def append_hwp_queue_once(
     data_root: Path,
     reason: str,
 ) -> None:
-    if path.exists():
-        with path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                if not line.strip():
-                    continue
-                try:
-                    if str(json.loads(line).get("news_item_id")) == item.news_item_id:
-                        return
-                except json.JSONDecodeError:
-                    continue
+    with _HWP_QUEUE_LOCK:
+        queue_path = path.resolve()
+        queued_ids = _HWP_QUEUE_IDS_BY_PATH.get(queue_path)
+        if queued_ids is None:
+            queued_ids = set()
+            _HWP_QUEUE_IDS_BY_PATH[queue_path] = queued_ids
+        if not queued_ids and path.exists():
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    if not line.strip():
+                        continue
+                    try:
+                        news_item_id = json.loads(line).get("news_item_id")
+                    except json.JSONDecodeError:
+                        continue
+                    if news_item_id:
+                        queued_ids.add(str(news_item_id))
+        if item.news_item_id in queued_ids:
+            return
+        append_jsonl(
+            path,
+            {
+                "news_item_id": item.news_item_id,
+                "approve_date": paths.approve_datetime(item.approve_date).date().isoformat(),
+                "reason": reason,
+                "hwp_path": raw_path.relative_to(data_root).as_posix(),
+            },
+        )
+        queued_ids.add(item.news_item_id)
+
+
+def load_completed_items(path: Path) -> set[tuple[str, str]]:
+    completed: set[tuple[str, str]] = set()
+    if not path.exists():
+        return completed
+    with path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if row.get("event") != "item":
+                continue
+            if row.get("status") not in RESUME_STATUSES:
+                continue
+            news_item_id = row.get("news_item_id")
+            action = row.get("action")
+            if news_item_id and action:
+                completed.add((str(action), str(news_item_id)))
+    return completed
+
+
+def _log_item(log_json: Path, manifest: Path, row: dict[str, Any], action: str, status: str) -> None:
     append_jsonl(
-        path,
+        log_json,
         {
-            "news_item_id": item.news_item_id,
-            "approve_date": paths.approve_datetime(item.approve_date).date().isoformat(),
-            "reason": reason,
-            "hwp_path": raw_path.relative_to(data_root).as_posix(),
+            "timestamp": datetime.now(UTC).isoformat(),
+            "event": "item",
+            "manifest": manifest.as_posix(),
+            "news_item_id": row.get("news_item_id"),
+            "target_date": row.get("target_date"),
+            "action": action,
+            "status": status,
         },
     )
 
@@ -285,10 +340,17 @@ def process_manifest(
     dry_run: bool,
     log_json: Path,
     hwp_queue: Path,
+    completed_items: set[tuple[str, str]],
+    concurrency: int,
 ) -> Counter[str]:
     counts: Counter[str] = Counter()
-    for row in iter_manifest(manifest, date_range=date_range, sample=sample):
+    rows = list(iter_manifest(manifest, date_range=date_range, sample=sample))
+
+    def process_row(row: dict[str, Any]) -> tuple[dict[str, Any], str, str]:
         action = str(row["action"])
+        news_item_id = str(row.get("news_item_id"))
+        if (action, news_item_id) in completed_items:
+            return row, action, "resume_skip"
         try:
             if action == "api_text_only":
                 status = write_api_text(row, data_root=data_root, checksum_store=checksum_store, dry_run=dry_run)
@@ -315,19 +377,20 @@ def process_manifest(
                     "error": f"{type(exc).__name__}: {exc}",
                 },
             )
-        counts[status] += 1
-        append_jsonl(
-            log_json,
-            {
-                "timestamp": datetime.now(UTC).isoformat(),
-                "event": "item",
-                "manifest": manifest.as_posix(),
-                "news_item_id": row.get("news_item_id"),
-                "target_date": row.get("target_date"),
-                "action": action,
-                "status": status,
-            },
-        )
+        return row, action, status
+
+    if concurrency > 1 and any(str(row.get("action")) in DOWNLOAD_ACTIONS for row in rows):
+        with ThreadPoolExecutor(max_workers=concurrency) as executor:
+            futures = [executor.submit(process_row, row) for row in rows]
+            for future in as_completed(futures):
+                row, action, status = future.result()
+                counts[status] += 1
+                _log_item(log_json, manifest, row, action, status)
+    else:
+        for row in rows:
+            row, action, status = process_row(row)
+            counts[status] += 1
+            _log_item(log_json, manifest, row, action, status)
     return counts
 
 
@@ -356,6 +419,7 @@ def run(args: argparse.Namespace) -> int:
     if not manifests:
         raise SystemExit("처리할 manifest가 없습니다.")
     checksum_store = checksums.open_store(data_root / "fetch-log" / "checksums.db")
+    completed_items = load_completed_items(args.log_json) if args.resume else set()
     totals: Counter[str] = Counter()
     for manifest in manifests:
         counts = process_manifest(
@@ -367,6 +431,8 @@ def run(args: argparse.Namespace) -> int:
             dry_run=args.dry_run,
             log_json=args.log_json,
             hwp_queue=args.hwp_queue,
+            completed_items=completed_items,
+            concurrency=args.concurrency,
         )
         totals.update(counts)
         append_jsonl(
@@ -395,6 +461,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hwp-year-to", type=int, default=2026)
     parser.add_argument("--sample", type=int)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--concurrency", type=int, default=1)
+    parser.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--log-json", type=Path, default=Path("data/fetch-log/expanded-backfill.jsonl"))
     parser.add_argument("--hwp-queue", type=Path, default=Path("data/fetch-log/hwp-queue-expanded.jsonl"))
     return parser
@@ -404,6 +472,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.sample is not None and args.sample < 1:
         raise SystemExit("--sample은 1 이상이어야 합니다.")
+    if args.concurrency < 1:
+        raise SystemExit("--concurrency는 1 이상이어야 합니다.")
     return run(args)
 
 
