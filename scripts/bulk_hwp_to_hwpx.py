@@ -160,6 +160,8 @@ def convert_one(hwp: object, src: Path, dst: Path) -> None:
             f"HWPX 저장 실패 (시도한 포맷: {HWPX_FORMATS}). "
             f"마지막 오류: {last_exc}"
         )
+    if not dst.exists() or dst.stat().st_size == 0:
+        raise RuntimeError(f"HWPX 저장 결과 파일이 없습니다: {dst}")
 
 
 def recover_hwp(hwp: object) -> None:

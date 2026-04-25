@@ -26,7 +26,7 @@
 | `download_hwp` | `hwp_downloaded` | 108 |
 | `download_hwp` | `skip_sha` | 53 |
 
-## HWP 큐
+## HWP 큐 및 COM 변환
 
 | 항목 | 값 |
 |---|---:|
@@ -46,18 +46,31 @@ HWP 큐 reason 분포:
 
 `skip_sha` 53건은 이미 동일 SHA의 raw HWP가 존재하던 항목이다. 재실행 시 큐 누락이 재발하지 않도록 `run_backfill_manifest.py`를 보강했다.
 
+서버H COM 변환 결과:
+
+| 항목 | count |
+|---|---:|
+| HWP 입력 | 161 |
+| HWPX 산출물 실존 | 109 |
+| HWPX 산출물 누락 | 52 |
+| M4 MD 생성 또는 기존 반영 | 108 |
+| M4 conversion_failed | 1 |
+
+산출물 누락 52건은 `data/fetch-log/hwp-missing-expanded-batch1.txt`에 기록했다. 한/글 COM `SaveAs`가 성공처럼 반환해도 실제 HWPX 파일이 생성되지 않는 사례가 있어, `scripts/bulk_hwp_to_hwpx.py`에 출력 파일 존재 검증을 추가했다.
+
 ## 변환 실패
 
 | 포맷 | 건수 | raw 실존 | raw 크기 | 비고 |
 |---|---:|---:|---:|---|
 | HWPX | 62 | 62 | 151.69 MiB | 일부는 HTML/error 또는 0 byte, 일부는 converter XML 파서 실패 |
 | PDF | 8 | 8 | 9.81 MiB | 일부는 1 KiB 미만 응답, 나머지는 converter 실패 |
+| HWP COM 산출 HWPX | 1 | 1 | - | `156468376`, HWPX XML 파싱 실패 |
 
 HWPX는 337건 중 62건을 먼저 처리하다가 연속 변환 실패가 확인되어 중단했다. 이번 배치의 HWPX 잔여 275건은 raw 다운로드/변환을 보류한다.
 
 ## 현재 결론
 
 - 확장 백필 1차 배치에서 API 본문만 있는 865건은 즉시 MD로 반영됐다.
-- HWP 161건은 서버H COM 변환 대기 상태다.
+- HWP 161건 중 108건은 M4 MD 반영 완료, 1건은 converter XML 파서 실패, 52건은 COM 산출물 누락이다.
 - HWPX/PDF 실패 항목은 raw 파일 품질과 converter 개선 범위를 분리해서 후속 분석해야 한다.
-- 다음 5년 배치로 넘어가기 전, HWP COM 변환과 M4 재처리 절차를 먼저 수행하는 것이 안전하다.
+- 다음 5년 배치로 넘어가기 전, COM 산출물 누락 52건을 배포전용/저장불가로 확정할지 샘플 검토가 필요하다.

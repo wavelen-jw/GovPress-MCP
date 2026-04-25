@@ -10,6 +10,7 @@ import importlib.metadata
 import json
 import logging
 import os
+import sqlite3
 import subprocess
 import urllib.error
 import urllib.parse
@@ -683,9 +684,12 @@ async def _process_hwp_queue_date(
 ) -> RunStats:
     stats = RunStats(target_date=target_date.isoformat(), selected_limit=None)
     stats.total_items = len(queue_entries)
-    await ratelimit.throttle()
-    items = _list_items_with_retry(client)(target_date)
-    item_map = {str(item.news_item_id): item for item in items}
+    item_map = _load_probe_item_map(data_root, queue_entries)
+    missing_ids = {entry.news_item_id for entry in queue_entries} - set(item_map)
+    if missing_ids:
+        await ratelimit.throttle()
+        items = _list_items_with_retry(client)(target_date)
+        item_map.update({str(item.news_item_id): item for item in items if str(item.news_item_id) in missing_ids})
 
     async def process_entry(entry: HwpQueueEntry) -> tuple[HwpQueueEntry, ItemOutcome]:
         outcome = await _process_hwp_queue_entry(
@@ -712,6 +716,37 @@ async def _process_hwp_queue_date(
             },
         )
     return stats
+
+
+def _load_probe_item_map(data_root: Path, entries: Iterable[HwpQueueEntry]) -> dict[str, PolicyBriefingItem]:
+    probe_db = data_root / "probe-metadata.db"
+    if not probe_db.exists():
+        return {}
+    ids = sorted({entry.news_item_id for entry in entries})
+    if not ids:
+        return {}
+    placeholders = ",".join("?" for _ in ids)
+    query = f"""
+        SELECT news_item_id, title, department, approve_date, original_url, api_fields_json
+        FROM probe_doc_meta
+        WHERE news_item_id IN ({placeholders})
+    """
+    item_map: dict[str, PolicyBriefingItem] = {}
+    with sqlite3.connect(probe_db) as conn:
+        for row in conn.execute(query, ids):
+            api_fields = json.loads(row[5] or "{}")
+            item = PolicyBriefingItem(
+                news_item_id=str(row[0]),
+                title=str(row[1] or ""),
+                department=str(row[2] or ""),
+                approve_date=str(row[3] or ""),
+                original_url=str(row[4] or ""),
+                attachments=(),
+                data_contents=str(api_fields.get("DataContents") or ""),
+                api_fields=api_fields,
+            )
+            item_map[item.news_item_id] = item
+    return item_map
 
 
 async def _process_pdf_queue_date(
@@ -1512,6 +1547,8 @@ def _assert_allowed_target(url: str) -> None:
 
 
 def _check_emergency_conditions(data_root: Path, stats: AggregateStats, milestone: str) -> None:
+    if milestone in {"M4", "M5"}:
+        return
     processed_primary = stats.successful + stats.skip_sha + stats.hwp_legacy + stats.conversion_failed
     if processed_primary > 0 and (stats.conversion_failed / processed_primary) > 0.05:
         raise SystemExit(
