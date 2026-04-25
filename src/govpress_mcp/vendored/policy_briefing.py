@@ -79,6 +79,8 @@ class PolicyBriefingItem:
     approve_date: str
     original_url: str
     attachments: tuple[PolicyBriefingAttachment, ...]
+    data_contents: str = ""
+    api_fields: dict[str, str] | None = None
 
     @property
     def primary_hwpx(self) -> PolicyBriefingAttachment | None:
@@ -173,6 +175,11 @@ class PolicyBriefingClient:
 
         items: list[PolicyBriefingItem] = []
         for node in root.findall("./body/NewsItem"):
+            api_fields = {
+                child.tag: _normalize_policy_briefing_title(child.text or "")
+                for child in node
+                if child.tag not in {"FileName", "FileUrl"}
+            }
             attachments = tuple(
                 PolicyBriefingAttachment(file_name=file_name, file_url=file_url)
                 for file_name, file_url in _extract_attachment_pairs(node)
@@ -186,6 +193,8 @@ class PolicyBriefingClient:
                     approve_date=(node.findtext("ApproveDate") or "").strip(),
                     original_url=(node.findtext("OriginalUrl") or "").strip(),
                     attachments=attachments,
+                    data_contents=node.findtext("DataContents") or "",
+                    api_fields=api_fields,
                 )
             )
         return items
