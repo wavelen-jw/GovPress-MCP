@@ -211,7 +211,7 @@ def run(args: argparse.Namespace) -> int:
 
             # 진행률 출력
             bar_done = int((idx / total) * 20)
-            bar = "█" * bar_done + "░" * (20 - bar_done)
+            bar = "#" * bar_done + "." * (20 - bar_done)
             print(
                 f"\r[{bar}] {idx:{pad}}/{total}  "
                 f"ETA {int(eta//60):02d}:{int(eta%60):02d}  "
