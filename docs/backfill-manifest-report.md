@@ -44,3 +44,13 @@
 3. 같은 배치의 `download_pdf`를 처리한다.
 4. 같은 배치의 `download_hwp`는 서버H COM 변환 용량에 맞춰 연도별로 처리한다.
 5. `skip_or_review`는 변환 작업과 분리해 수동 분류한다.
+
+## 저장공간 정책
+
+- HWP 원본은 장기 보관하지 않는다.
+- 서버H COM 변환으로 `.hwpx` 생성이 완료되고, `.hwpx` 기반 MD 생성이 성공하면 원본 `.hwp`는 삭제 가능하다.
+- 삭제 전 조건: `.hwpx` 존재, 파일 크기 > 0, MD 생성 성공, 성공 로그/checksum 기록 존재.
+- raw 장기 보관은 repo 작업 디스크가 아닌 별도 로컬 드라이브로 이동한다.
+- 작업 중 I/O는 WSL 네이티브 경로(`/home/wavel/projects/govpress-mcp/data`)에서 수행하고, 완료 후 archive로 이동한다.
+
+현재 평균 크기 기준 HWP 원본 추가량은 약 368 GiB다. HWP 원본과 변환 HWPX를 동시에 전량 보관하면 peak가 약 740 GiB까지 커질 수 있으므로, 5년 배치 단위로 처리하고 배치 완료 후 HWP 원본을 삭제한다.
